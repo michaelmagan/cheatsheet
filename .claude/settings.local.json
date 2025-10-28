@@ -4,7 +4,8 @@
       "Bash(npm run lint)",
       "Bash(find:*)",
       "Bash(npm run build:*)",
-      "Bash(npm run check-types:*)"
+      "Bash(npm run check-types:*)",
+      "WebFetch(domain:docs.tambo.co)",
     ],
     "deny": []
   }

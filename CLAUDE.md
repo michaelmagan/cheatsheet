@@ -19,23 +19,32 @@ This is a Next.js application built with the Tambo AI framework for generative U
 **Tambo Integration (`src/lib/tambo.ts`)**
 
 - Central configuration for Tambo components and tools
-- `components` array: Registers UI components that AI can render (Spreadsheet, Graph, DataCards)
-- `tools` array: Registers functions that AI can execute (spreadsheet operations, MCP servers)
-- Components use Zod schemas for props validation
+- `components` array: Currently empty - Spreadsheet is NOT a Tambo component, it's a persistent UI element
+- `tools` array: Registers 13 spreadsheet manipulation functions (updateCell, createTab, etc.)
+- AI accesses spreadsheet via context helpers (read) and tools (write), not component registration
 
 **Spreadsheet System**
 
-- Interactive spreadsheet built with `@silevis/reactgrid` library
-- Zustand store in `src/lib/spreadsheet-tabs-store.ts` manages spreadsheet tabs and data
-- Context system for spreadsheet selection and operations:
-  - `src/lib/spreadsheet-selection-context.ts` - Selection state management
-  - `src/lib/spreadsheet-context-helper.ts` - Context utilities for spreadsheet operations
-- Components:
-  - `src/components/tambo/spreadsheet.tsx` - Tambo component registration
-  - `src/components/ui/interactable-spreadsheet.tsx` - Main interactive spreadsheet component
-  - `src/components/ui/spreadsheet-tabs.tsx` - Tab UI for multiple spreadsheets
-- Utility functions in `src/lib/spreadsheet-utils.ts` for data manipulation
-- AI tools in `src/tools/spreadsheet-tools.ts` for spreadsheet manipulation
+The spreadsheet uses a three-layer architecture for AI interaction:
+
+1. **Context Helpers** (Read-only automatic context):
+   - `src/lib/spreadsheet-context-helper.ts` - Formats active spreadsheet as markdown table
+   - `src/lib/spreadsheet-selection-context.ts` - Provides current cell selection
+   - Called automatically on every AI message
+
+2. **Interactables** (Structured metadata):
+   - `src/components/ui/interactable-tabs.tsx` - Exposes tab metadata (names, IDs, active tab)
+   - Uses `withInteractable` HOC to publish state updates to AI
+   - Note: `InteractableSpreadsheet` exists but is not currently used
+
+3. **Tools** (Mutations):
+   - `src/tools/spreadsheet-tools.ts` - 13 tools for spreadsheet manipulation
+   - Tools: updateCell, updateRange, createTab, deleteTab, switchTab, addColumn, removeColumn, addRow, removeRow, readCell, readRange, clearRange, sortByColumn
+
+- State: Zustand store in `src/lib/spreadsheet-tabs-store.ts` manages all spreadsheet data
+- UI: `src/components/ui/spreadsheet-tabs.tsx` - Visual tab interface for users
+- Grid: Built with `@silevis/reactgrid` library
+- Utilities: `src/lib/spreadsheet-utils.ts` for data manipulation
 
 **State Management**
 
@@ -45,7 +54,8 @@ This is a Next.js application built with the Tambo AI framework for generative U
 
 **MCP (Model Context Protocol)**
 
-- Configure MCP servers at `/mcp-config` route
+- Configure MCP servers via modal component (no dedicated route)
+- Configuration UI in `src/components/tambo/mcp-config-modal.tsx`
 - Servers stored in browser localStorage
 - Wrapped with `TamboMcpProvider` in chat interface
 - Supports SSE and HTTP MCP servers
