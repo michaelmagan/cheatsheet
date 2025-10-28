@@ -17,6 +17,7 @@ export function useMergedRef<T>(...refs: React.Ref<T>[]) {
           ref(element);
         } else {
           // This cast is safe because we're just updating the .current property
+          // eslint-disable-next-line react-hooks/immutability -- False positive: MutableRefObject.current is designed to be mutable
           (ref as React.MutableRefObject<T>).current = element;
         }
       }

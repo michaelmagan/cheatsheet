@@ -5,11 +5,15 @@ import SpreadsheetTabs from "@/components/ui/spreadsheet-tabs";
 import { InteractableTabs } from "@/components/ui/interactable-tabs";
 import { components, tools } from "@/lib/tambo";
 import { spreadsheetContextHelper } from "@/lib/spreadsheet-context-helper";
+import { spreadsheetSelectionContextHelper } from "@/lib/spreadsheet-selection-context";
 import { TamboProvider } from "@tambo-ai/react";
 import { TamboMcpProvider } from "@tambo-ai/react/mcp";
+import { useState } from "react";
+import { PanelLeftIcon, PanelRightIcon } from "lucide-react";
 
 export default function Home() {
   const mcpServers = useMcpServers();
+  const [showSpreadsheet, setShowSpreadsheet] = useState(true);
 
   // You can customize default suggestions via MessageThreadFull internals
 
@@ -22,14 +26,27 @@ export default function Home() {
         tools={tools}
         contextHelpers={{
           spreadsheet: spreadsheetContextHelper,
+          selection: spreadsheetSelectionContextHelper,
         }}
       >
         <TamboMcpProvider mcpServers={mcpServers}>
+          {/* Mobile toggle button */}
+          <button
+            onClick={() => setShowSpreadsheet(!showSpreadsheet)}
+            className="md:hidden fixed top-4 right-4 z-50 p-2 rounded-lg bg-accent hover:bg-accent/80 shadow-lg border border-border"
+            aria-label={showSpreadsheet ? "Show chat" : "Show spreadsheet"}
+          >
+            {showSpreadsheet ? <PanelLeftIcon className="h-5 w-5" /> : <PanelRightIcon className="h-5 w-5" />}
+          </button>
+
           <div className="flex h-full overflow-hidden">
-            <div className="flex-1 overflow-hidden">
+            {/* Chat panel - hidden on mobile when spreadsheet is shown */}
+            <div className={`${showSpreadsheet ? 'hidden md:flex' : 'flex'} flex-1 overflow-hidden`}>
               <MessageThreadFull contextKey="tambo-template" />
             </div>
-            <div className="hidden md:block w-[60%] overflow-auto">
+
+            {/* Spreadsheet panel - responsive width and visibility */}
+            <div className={`${showSpreadsheet ? 'flex' : 'hidden md:flex'} w-full md:w-[60%] overflow-auto`}>
               {/* Tab metadata interactable for AI */}
               <InteractableTabs interactableId="TabsState" />
 

@@ -142,12 +142,7 @@ const ThreadContentMessages = React.forwardRef<
       {filteredMessages.map((message, index) => {
         return (
           <div
-            key={
-              message.id ??
-              `${message.role}-${
-                message.createdAt ?? Date.now()
-              }-${message.content?.toString().substring(0, 10)}`
-            }
+            key={message.id}
             data-slot="thread-content-item"
           >
             <Message

@@ -658,4 +658,5 @@ export {
   ThreadHistoryNewButton,
   ThreadHistorySearch,
   ThreadOptionsDropdown,
+  useThreadHistoryContext,
 };

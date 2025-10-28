@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run dev` - Start development server (Next.js)
 - `npm run build` - Build for production
 - `npm run lint` - Run ESLint
+- `npm run check-types` - Run TypeScript type checking
 - `npx tambo init` - Initialize Tambo configuration (creates .env.local)
 
 ## Architecture Overview

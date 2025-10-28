@@ -29,11 +29,55 @@ import {
   ThreadHistoryList,
   ThreadHistoryNewButton,
   ThreadHistorySearch,
+  useThreadHistoryContext,
 } from "@/components/tambo/thread-history";
+import { GithubIcon } from "lucide-react";
 import { useMergedRef } from "@/lib/thread-hooks";
 import type { Suggestion } from "@tambo-ai/react";
 import type { VariantProps } from "class-variance-authority";
 import * as React from "react";
+import { cn } from "@/lib/utils";
+
+/**
+ * GitHub button component for the sidebar
+ */
+const GitHubButton = React.forwardRef<
+  HTMLAnchorElement,
+  React.AnchorHTMLAttributes<HTMLAnchorElement>
+>(({ ...props }, ref) => {
+  const { isCollapsed } = useThreadHistoryContext();
+
+  // TODO: Replace with your GitHub repository URL
+  const githubRepoUrl = "https://github.com/yourusername/yourrepo";
+
+  return (
+    <a
+      ref={ref}
+      href={githubRepoUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(
+        "flex items-center rounded-md mb-4 hover:bg-backdrop transition-colors cursor-pointer relative",
+        isCollapsed ? "p-1 justify-center" : "p-2 gap-2",
+      )}
+      title="View on GitHub"
+      {...props}
+    >
+      <GithubIcon className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />
+      <span
+        className={cn(
+          "text-sm font-medium whitespace-nowrap absolute left-8 pb-[2px]",
+          isCollapsed
+            ? "opacity-0 max-w-0 overflow-hidden pointer-events-none"
+            : "opacity-100 transition-all duration-300 delay-100",
+        )}
+      >
+        GitHub Repo
+      </span>
+    </a>
+  );
+});
+GitHubButton.displayName = "GitHubButton";
 
 /**
  * Props for the MessageThreadFull component
@@ -64,6 +108,7 @@ export const MessageThreadFull = React.forwardRef<
   const threadHistorySidebar = (
     <ThreadHistory contextKey={contextKey} position={historyPosition}>
       <ThreadHistoryHeader />
+      <GitHubButton />
       <ThreadHistoryNewButton />
       <ThreadHistorySearch />
       <ThreadHistoryList />

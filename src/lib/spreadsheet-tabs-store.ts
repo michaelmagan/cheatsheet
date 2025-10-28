@@ -4,62 +4,18 @@
  */
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import type { Cell, Row, Column, SpreadsheetTab } from "@/types/spreadsheet";
+import { generateId } from "@/lib/id-generator";
+import {
+  DEFAULT_SPREADSHEET_COLUMNS,
+  DEFAULT_SPREADSHEET_ROWS,
+  DEFAULT_COLUMN_WIDTH,
+  ROW_HEADER_WIDTH,
+} from "@/lib/constants";
 
 // ============================================
 // Types
 // ============================================
-
-// Cell types
-export interface HeaderCell {
-  type: "header";
-  text: string;
-  nonEditable?: boolean;
-  className?: string;
-  style?: React.CSSProperties;
-}
-
-export interface TextCell {
-  type: "text";
-  text: string;
-  nonEditable?: boolean;
-  className?: string;
-  style?: React.CSSProperties;
-}
-
-export interface NumberCell {
-  type: "number";
-  value: number;
-  format?: string;
-  nonEditable?: boolean;
-  className?: string;
-  style?: React.CSSProperties;
-}
-
-export type Cell = HeaderCell | TextCell | NumberCell;
-
-// Row structure
-export interface Row {
-  rowId: string | number;
-  cells: Cell[];
-  height?: number;
-}
-
-// Column structure
-export interface Column {
-  columnId: string;
-  width?: number;
-  resizable?: boolean;
-  reorderable?: boolean;
-}
-
-// Tab structure
-export interface SpreadsheetTab {
-  id: string;
-  name: string;
-  rows: Row[];
-  columns: Column[];
-  editable: boolean;
-}
 
 // Store state
 export interface SpreadsheetTabsState {
@@ -84,10 +40,6 @@ export interface SpreadsheetTabsState {
 // Helpers
 // ============================================
 
-// Generate a unique ID
-export const generateId = () =>
-  `id-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-
 // Helper to generate column letters (A, B, C, ..., Z, AA, AB, ...)
 export function columnIndexToLetter(index: number): string {
   let letter = "";
@@ -104,15 +56,20 @@ function createDefaultColumns(): Column[] {
   // First column is for row numbers
   const rowNumberColumn: Column = {
     columnId: "ROW_HEADER",
-    width: 50,
+    width: ROW_HEADER_WIDTH,
     resizable: false,
     reorderable: false,
   };
 
-  // Data columns A-E
-  const dataColumns: Column[] = ["A", "B", "C", "D", "E"].map((columnId) => ({
+  // Generate column letters based on DEFAULT_SPREADSHEET_COLUMNS
+  const columnLetters = Array.from({ length: DEFAULT_SPREADSHEET_COLUMNS }, (_, i) =>
+    columnIndexToLetter(i)
+  );
+
+  // Data columns
+  const dataColumns: Column[] = columnLetters.map((columnId) => ({
     columnId,
-    width: 150,
+    width: DEFAULT_COLUMN_WIDTH,
     resizable: true,
     reorderable: false,
   }));
@@ -120,7 +77,7 @@ function createDefaultColumns(): Column[] {
   return [rowNumberColumn, ...dataColumns];
 }
 
-// Create default rows (column header row + 20 data rows)
+// Create default rows (column header row + DEFAULT_SPREADSHEET_ROWS data rows)
 function createDefaultRows(): Row[] {
   const columns = createDefaultColumns();
   const dataColumns = columns.filter(col => col.columnId !== "ROW_HEADER");
@@ -136,7 +93,7 @@ function createDefaultRows(): Row[] {
         text: "",
         nonEditable: true,
       },
-      // Column headers (A, B, C, D, E) - non-editable
+      // Column headers - non-editable
       ...dataColumns.map((col) => ({
         type: "header" as const,
         text: col.columnId,
@@ -145,8 +102,8 @@ function createDefaultRows(): Row[] {
     ],
   });
 
-  // Data rows (1-20) with row number in first column
-  for (let i = 1; i <= 20; i++) {
+  // Data rows with row number in first column
+  for (let i = 1; i <= DEFAULT_SPREADSHEET_ROWS; i++) {
     rows.push({
       rowId: i,
       cells: [
@@ -178,13 +135,13 @@ function validateCell(cell: unknown): Cell {
     return { type: "text", text: "" };
   }
 
-  const c = cell as any;
+  const c = cell as Record<string, unknown>;
 
   if (c.type === "header") {
     return {
       type: "header",
       text: String(c.text || ""),
-      nonEditable: c.nonEditable,
+      nonEditable: c.nonEditable as boolean | undefined,
     };
   }
 
@@ -192,8 +149,8 @@ function validateCell(cell: unknown): Cell {
     return {
       type: "number",
       value: Number(c.value || 0),
-      format: c.format,
-      nonEditable: c.nonEditable,
+      format: undefined, // NumberFormat objects cannot be serialized/restored from storage
+      nonEditable: c.nonEditable as boolean | undefined,
     };
   }
 
@@ -201,34 +158,46 @@ function validateCell(cell: unknown): Cell {
   return {
     type: "text",
     text: String(c.text || ""),
-    nonEditable: c.nonEditable,
+    nonEditable: c.nonEditable as boolean | undefined,
   };
 }
 
 // Validate and fix tab data
-function validateTab(tab: any): SpreadsheetTab | null {
+function validateTab(tab: unknown): SpreadsheetTab | null {
   try {
-    if (!tab || !tab.id || !Array.isArray(tab.rows) || !Array.isArray(tab.columns)) {
+    if (!tab || typeof tab !== "object") {
+      return null;
+    }
+
+    const t = tab as Record<string, unknown>;
+
+    if (!t.id || !Array.isArray(t.rows) || !Array.isArray(t.columns)) {
       return null;
     }
 
     return {
-      id: tab.id,
-      name: String(tab.name || "Sheet"),
-      rows: tab.rows.map((row: any) => ({
-        rowId: row.rowId,
-        cells: Array.isArray(row.cells)
-          ? row.cells.map(validateCell)
-          : [],
-        height: row.height,
-      })),
-      columns: tab.columns.map((col: any) => ({
-        columnId: String(col.columnId || ""),
-        width: Number(col.width || 150),
-        resizable: Boolean(col.resizable),
-        reorderable: Boolean(col.reorderable),
-      })),
-      editable: Boolean(tab.editable !== false),
+      id: t.id as string,
+      name: String(t.name || "Sheet"),
+      rows: t.rows.map((row: unknown) => {
+        const r = row as Record<string, unknown>;
+        return {
+          rowId: r.rowId as string | number,
+          cells: Array.isArray(r.cells)
+            ? r.cells.map(validateCell)
+            : [],
+          height: r.height as number | undefined,
+        };
+      }),
+      columns: t.columns.map((col: unknown) => {
+        const c = col as Record<string, unknown>;
+        return {
+          columnId: String(c.columnId || ""),
+          width: Number(c.width || 150),
+          resizable: Boolean(c.resizable),
+          reorderable: Boolean(c.reorderable),
+        };
+      }),
+      editable: Boolean(t.editable !== false),
     };
   } catch (error) {
     console.error("Error validating tab:", error);
@@ -339,7 +308,7 @@ export const useSpreadsheetTabsStore = create<SpreadsheetTabsState>()(
           // Add new column
           const newColumn: Column = {
             columnId: nextColumnId,
-            width: 150,
+            width: DEFAULT_COLUMN_WIDTH,
             resizable: true,
             reorderable: false,
           };
@@ -459,7 +428,7 @@ export const useSpreadsheetTabsStore = create<SpreadsheetTabsState>()(
           // Create a new row with empty cells
           const newRow: Row = {
             rowId: nextRowNumber,
-            cells: tab.columns.map((col, idx) => {
+            cells: tab.columns.map((col) => {
               if (col.columnId === "ROW_HEADER") {
                 // Row number cell
                 return {

@@ -5,65 +5,22 @@ import { applyChanges } from "@/lib/spreadsheet-utils";
 import * as React from "react";
 import { ReactGrid } from "@silevis/reactgrid";
 import "@silevis/reactgrid/styles.css";
-import type { CellChange, Range } from "@silevis/reactgrid";
-import { z } from "zod";
+import type { CellChange, Range, Row as ReactGridRow, Column as ReactGridColumn } from "@silevis/reactgrid";
+import type { Row, Column, Selection } from "@/types/spreadsheet";
+import { spreadsheetPropsSchema } from "@/schemas/spreadsheet-schemas";
 
 // ============================================
 // Zod Schemas
 // ============================================
 
-// Cell types
-const headerCellSchema = z.object({
-  type: z.literal("header"),
-  text: z.string(),
-  nonEditable: z.boolean().optional(),
-  className: z.string().optional(),
-  style: z.record(z.any()).optional(),
-});
+// Re-export the schema for use in Tambo component registration
+export const spreadsheetSchema = spreadsheetPropsSchema;
 
-const textCellSchema = z.object({
-  type: z.literal("text"),
-  text: z.string(),
-  nonEditable: z.boolean().optional(),
-  className: z.string().optional(),
-  style: z.record(z.any()).optional(),
-});
-
-const numberCellSchema = z.object({
-  type: z.literal("number"),
-  value: z.number(),
-  format: z.string().optional(), // e.g., "$0,0.00" or "0.00%"
-  nonEditable: z.boolean().optional(),
-  className: z.string().optional(),
-  style: z.record(z.any()).optional(),
-});
-
-const cellSchema = z.union([headerCellSchema, textCellSchema, numberCellSchema]);
-
-// Row structure
-const rowSchema = z.object({
-  rowId: z.union([z.string(), z.number()]),
-  cells: z.array(cellSchema),
-  height: z.number().optional(),
-});
-
-// Column structure
-const columnSchema = z.object({
-  columnId: z.string(),
-  width: z.number().optional(),
-  resizable: z.boolean().optional(),
-  reorderable: z.boolean().optional(),
-});
-
-// Main spreadsheet props
-export const spreadsheetSchema = z.object({
-  title: z.string().optional().describe("Title displayed above the spreadsheet"),
-  columns: z.array(columnSchema).describe("Column definitions"),
-  rows: z.array(rowSchema).describe("Row data with cells"),
-  editable: z.boolean().optional().default(true).describe("Whether cells can be edited"),
-});
-
-export type SpreadsheetProps = z.infer<typeof spreadsheetSchema> & {
+export type SpreadsheetProps = {
+  title?: string;
+  columns: Column[];
+  rows: Row[];
+  editable?: boolean;
   className?: string;
   onChange: (rows: Row[]) => void;
   onSelectionChange?: (selection: Selection | null) => void;
@@ -72,15 +29,6 @@ export type SpreadsheetProps = z.infer<typeof spreadsheetSchema> & {
   onAddRow?: () => void;
   onRemoveRow?: (rowId: string | number) => void;
 };
-
-// Selection type
-interface Selection {
-  start: { row: number; col: number };
-  end: { row: number; col: number };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 // ============================================
 // Spreadsheet Component (Fully Controlled)
@@ -136,6 +84,7 @@ export const Spreadsheet = React.forwardRef<HTMLDivElement, SpreadsheetProps>(
   }, ref) => {
     const [selectedColumnId, setSelectedColumnId] = React.useState<string | null>(null);
     const [selectedRowId, setSelectedRowId] = React.useState<string | number | null>(null);
+    const [hasActiveSelection, setHasActiveSelection] = React.useState(false);
 
     // Handle cell changes - call parent's onChange
     const handleChanges = React.useCallback((changes: CellChange[]) => {
@@ -150,15 +99,19 @@ export const Spreadsheet = React.forwardRef<HTMLDivElement, SpreadsheetProps>(
       if (!ranges || ranges.length === 0) {
         setSelectedColumnId(null);
         setSelectedRowId(null);
+        setHasActiveSelection(false);
         onSelectionChange?.(null);
         return;
       }
 
       const range = ranges[0];
-      const startRow = Number(range.first.row);
-      const endRow = Number(range.last.row);
-      const startCol = Number(range.first.column);
-      const endCol = Number(range.last.column);
+
+      const startRow = range.first.row.idx;
+      const endRow = range.last.row.idx;
+      const startCol = range.first.column.idx;
+      const endCol = range.last.column.idx;
+
+      setHasActiveSelection(true);
 
       // Check if entire column is selected (all rows selected for one column)
       if (startCol === endCol && startRow === 0 && endRow === rows.length - 1) {
@@ -195,18 +148,43 @@ export const Spreadsheet = React.forwardRef<HTMLDivElement, SpreadsheetProps>(
       onSelectionChange?.(selection);
     }, [onSelectionChange, rows, columns]);
 
-    // If no rows or columns, show a placeholder
+    // If no rows or columns, show a helpful empty state
     if (!rows || rows.length === 0 || !columns || columns.length === 0) {
       return (
         <div
           ref={ref}
           className={cn(
-            "w-full bg-background p-4",
+            "w-full h-full bg-background flex flex-col",
             className
           )}
         >
-          <div className="flex flex-col items-center justify-center text-muted-foreground">
-            <p className="text-sm">No data available</p>
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-8 gap-4">
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-semibold text-foreground">No Data Available</h3>
+              <p className="text-sm max-w-md">
+                This spreadsheet is empty. Use the AI assistant to add data, or create columns and rows to get started.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              {onAddColumn && (
+                <button
+                  onClick={onAddColumn}
+                  className="px-4 py-2 flex items-center gap-2 text-sm rounded-md bg-accent hover:bg-accent/80 text-foreground border border-border transition-colors"
+                  aria-label="Add first column"
+                >
+                  <span>Add Column</span>
+                </button>
+              )}
+              {onAddRow && (
+                <button
+                  onClick={onAddRow}
+                  className="px-4 py-2 flex items-center gap-2 text-sm rounded-md bg-accent hover:bg-accent/80 text-foreground border border-border transition-colors"
+                  aria-label="Add first row"
+                >
+                  <span>Add Row</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       );
@@ -216,69 +194,91 @@ export const Spreadsheet = React.forwardRef<HTMLDivElement, SpreadsheetProps>(
       <div
         ref={ref}
         className={cn(
-          "w-full bg-background relative",
+          "w-full h-full bg-background flex flex-col",
           className
         )}
       >
-        {title && (
-          <div className="px-4 pt-4 pb-2">
+        {/* Header with title and toolbar */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border">
+          {title && (
             <h3 className="text-lg font-semibold">{title}</h3>
+          )}
+
+          {/* AI Selection Indicator */}
+          {hasActiveSelection && (
+            <div className="flex items-center gap-2 px-3 py-1 text-xs bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 rounded-md border border-blue-200 dark:border-blue-800">
+              <svg
+                className="w-3 h-3 animate-pulse"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <circle cx="10" cy="10" r="5" />
+              </svg>
+              <span>AI sees selection</span>
+            </div>
+          )}
+
+          {/* Toolbar with action buttons */}
+          <div className="flex items-center gap-2 ml-auto">
+            {selectedColumnId && onRemoveColumn && (
+              <button
+                onClick={() => onRemoveColumn(selectedColumnId)}
+                className="px-3 py-1.5 flex items-center gap-1.5 text-xs rounded-md bg-destructive hover:bg-destructive/90 text-destructive-foreground transition-colors"
+                aria-label={`Delete column ${selectedColumnId}`}
+                title={`Delete column ${selectedColumnId}`}
+              >
+                <span>Delete Column {selectedColumnId}</span>
+              </button>
+            )}
+
+            {selectedRowId && onRemoveRow && (
+              <button
+                onClick={() => onRemoveRow(selectedRowId)}
+                className="px-3 py-1.5 flex items-center gap-1.5 text-xs rounded-md bg-destructive hover:bg-destructive/90 text-destructive-foreground transition-colors"
+                aria-label={`Delete row ${selectedRowId}`}
+                title={`Delete row ${selectedRowId}`}
+              >
+                <span>Delete Row {selectedRowId}</span>
+              </button>
+            )}
+
+            {onAddColumn && (
+              <button
+                onClick={onAddColumn}
+                className="px-3 py-1.5 flex items-center gap-1.5 text-xs rounded-md bg-accent hover:bg-accent/80 text-foreground border border-border transition-colors"
+                aria-label="Add column"
+                title="Add column"
+              >
+                <span>Add Column</span>
+              </button>
+            )}
+
+            {onAddRow && (
+              <button
+                onClick={onAddRow}
+                className="px-3 py-1.5 flex items-center gap-1.5 text-xs rounded-md bg-accent hover:bg-accent/80 text-foreground border border-border transition-colors"
+                aria-label="Add row"
+                title="Add row"
+              >
+                <span>Add Row</span>
+              </button>
+            )}
           </div>
-        )}
-        <div className="w-full overflow-auto relative">
+        </div>
+
+        {/* Spreadsheet grid */}
+        <div className="flex-1 overflow-auto">
           <ReactGrid
-            rows={rows}
-            columns={columns}
+            rows={rows as unknown as ReactGridRow[]}
+            columns={columns as unknown as ReactGridColumn[]}
             onCellsChanged={handleChanges}
             onSelectionChanged={handleSelectionChanged}
             enableRangeSelection
             enableRowSelection
             enableColumnSelection
+            stickyTopRows={1}
+            stickyLeftColumns={1}
           />
-
-          {/* Add Column button - positioned to the right */}
-          {onAddColumn && (
-            <button
-              onClick={onAddColumn}
-              className="absolute top-1/2 right-2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full bg-accent hover:bg-accent/80 text-foreground shadow-sm border border-border"
-              title="Add column"
-            >
-              +
-            </button>
-          )}
-
-          {/* Add Row button - positioned at bottom */}
-          {onAddRow && (
-            <button
-              onClick={onAddRow}
-              className="absolute left-1/2 bottom-2 -translate-x-1/2 w-6 h-6 flex items-center justify-center rounded-full bg-accent hover:bg-accent/80 text-foreground shadow-sm border border-border"
-              title="Add row"
-            >
-              +
-            </button>
-          )}
-
-          {/* Delete Column button - shown when column is selected */}
-          {selectedColumnId && onRemoveColumn && (
-            <button
-              onClick={() => onRemoveColumn(selectedColumnId)}
-              className="absolute top-4 right-12 px-3 py-1 flex items-center gap-1 text-xs rounded bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-md border border-border"
-              title={`Delete column ${selectedColumnId}`}
-            >
-              <span>Delete Column {selectedColumnId}</span>
-            </button>
-          )}
-
-          {/* Delete Row button - shown when row is selected */}
-          {selectedRowId && onRemoveRow && (
-            <button
-              onClick={() => onRemoveRow(selectedRowId)}
-              className="absolute top-4 right-12 px-3 py-1 flex items-center gap-1 text-xs rounded bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-md border border-border"
-              title={`Delete row ${selectedRowId}`}
-            >
-              <span>Delete Row {selectedRowId}</span>
-            </button>
-          )}
         </div>
       </div>
     );

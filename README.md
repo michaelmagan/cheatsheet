@@ -1,37 +1,64 @@
-# Generative UI Spreadsheet Template
+# Cheat Sheet
 
-This is a generative UI spreadsheet template built with Tambo AI.
+An AI-powered, open-source Google Sheets competitor built with Tambo AI.
 
-Generate and manipulate interactive spreadsheets with natural language, alongside graphs and visualizations.
+Build and manipulate interactive spreadsheets with natural language, alongside graphs and visualizations.
 
 ## Features
 
-- Generate interactive spreadsheets with natural language
-- Create and manage multiple spreadsheet tabs
-- Update cells and ranges through AI chat
-- Generate graphs inside the chat
-- Edit spreadsheets with natural language in the chat
+- **AI-Powered Spreadsheet Manipulation**: Generate and edit spreadsheets using natural language commands
+- **Multi-Tab Support**: Create and manage multiple spreadsheet tabs within a single workspace
+- **Cell and Range Updates**: Update individual cells or entire ranges through AI chat interactions
+- **Cell Selection**: Select cells and interact with them directly in the interface
+- **Real-time Collaboration with AI**: Chat with AI to transform and analyze your data on the fly
+- **Model Context Protocol (MCP) Integration**: Connect external data sources and tools via MCP servers
+
+## Roadmap
+
+- **Formula Support**: Add support for spreadsheet formulas (SUM, AVERAGE, IF, VLOOKUP, etc.)
+- **Graph Generation**: Generate charts and visualizations based on spreadsheet data
+- **Advanced Formatting**: Enhanced visual formatting options for tables (colors, borders, fonts, alignment)
+- **Import/Export**: Support for importing and exporting data in various formats (CSV, XLSX, JSON)
 
 ## Demo
-
-<video src="./2025-08-30-tambo-analytics.mp4" controls width="720"></video>
 
 ## Get Started
 
 1. Clone this repository
 
-2. `cd spreadsheet-template`
+2. Navigate to the project directory:
+   ```bash
+   cd spreadsheet-template
+   ```
 
-3. `npm install`
+3. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-4. `npx tambo init`
-   - or rename `example.env.local` to `.env.local` and set:
+4. Set up your environment variables:
 
-     ```env
-     NEXT_PUBLIC_TAMBO_API_KEY=your-api-key
-     ```
+   **Option A: Using Tambo CLI (Recommended)**
+   ```bash
+   npx tambo init
+   ```
+   This will interactively prompt you for your Tambo API key and create `.env.local` automatically.
 
-5. Run `npm run dev` and go to `localhost:3000` to use the app!
+   **Option B: Manual Setup**
+   ```bash
+   cp example.env.local .env.local
+   ```
+   Then edit `.env.local` and set your API key:
+   ```env
+   NEXT_PUBLIC_TAMBO_API_KEY=your-api-key-here
+   ```
+
+5. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+6. Open [http://localhost:3000](http://localhost:3000) in your browser to use the app!
 
 ## Key Components
 
@@ -174,3 +201,11 @@ The AI can manipulate spreadsheets through tools registered in `src/tools/spread
 - Data transformations
 
 P.S. We use Tambo under the hood to manage chat state, which components the AI can render, and which components the AI can interact with. Tambo is 100% open source — see the repository at [tambo-ai/tambo](https://github.com/tambo-ai/tambo).
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on how to contribute to this project.
+
+## License
+
+This template is open source and available under the MIT License.

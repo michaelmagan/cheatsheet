@@ -21,11 +21,6 @@ interface CellSelection {
   end: { row: number; col: number };
 }
 
-// Define context helper return type based on Tambo's expected format
-type ContextHelperResult = {
-  type: string;
-  data: Record<string, unknown>;
-} | null;
 
 // ============================================
 // Global State
@@ -42,20 +37,14 @@ let currentSpreadsheetSelection: SpreadsheetSelectionContext | null = null;
  * Context helper that Tambo will call to get current spreadsheet selection
  * This provides additional context to the AI about what cells the user has selected
  */
-export const spreadsheetSelectionContextHelper = (): ContextHelperResult => {
+export const spreadsheetSelectionContextHelper = () => {
   if (!currentSpreadsheetSelection) {
     return null;
   }
 
-  return {
-    type: "spreadsheet-selection",
-    data: {
-      spreadsheetId: currentSpreadsheetSelection.spreadsheetId,
-      selectedRange: currentSpreadsheetSelection.selectedRange,
-      selectedCells: currentSpreadsheetSelection.selectedCells,
-      summary: `User has selected ${currentSpreadsheetSelection.selectedCells.length} cells (${currentSpreadsheetSelection.selectedRange})`,
-    },
-  };
+  const { selectedRange } = currentSpreadsheetSelection;
+
+  return `User currently has selected: ${selectedRange}`;
 };
 
 // ============================================

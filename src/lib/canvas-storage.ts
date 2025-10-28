@@ -4,6 +4,8 @@
  */
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { generateId } from "@/lib/id-generator";
+import { DEDUPLICATION_TIMEOUT } from "@/lib/constants";
 
 // Canvas data model types
 export interface CanvasComponent {
@@ -52,10 +54,6 @@ export interface CanvasState {
     newIndex: number,
   ) => void;
 }
-
-// Generate a unique ID for components or canvases
-export const generateId = () =>
-  `id-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
 // Create the store with persistence
 export const useCanvasStore = create<CanvasState>()(
@@ -300,7 +298,6 @@ export const useCanvasStore = create<CanvasState>()(
         const pendingOps = get().pendingOperations;
 
         if (pendingOps.has(operationKey)) {
-          console.log(`[CANVAS] Skipping duplicate operation: ${operationKey}`);
           return;
         }
 
@@ -316,15 +313,12 @@ export const useCanvasStore = create<CanvasState>()(
             targetCanvas &&
             targetCanvas.components.some((c) => c.componentId === componentId)
           ) {
-            console.log(
-              `[CANVAS] Component ${componentId} already exists in canvas ${canvasId}`,
-            );
-            // Remove operation from pending after 100ms
+            // Remove operation from pending after timeout
             setTimeout(() => {
               const ops = get().pendingOperations;
               ops.delete(operationKey);
               set({ pendingOperations: new Set(ops) });
-            }, 100);
+            }, DEDUPLICATION_TIMEOUT);
             return state;
           }
 
@@ -345,12 +339,12 @@ export const useCanvasStore = create<CanvasState>()(
               : c,
           );
 
-          // Remove operation from pending after 100ms
+          // Remove operation from pending after timeout
           setTimeout(() => {
             const ops = get().pendingOperations;
             ops.delete(operationKey);
             set({ pendingOperations: new Set(ops) });
-          }, 100);
+          }, DEDUPLICATION_TIMEOUT);
 
           return { canvases: updatedCanvases };
         });
@@ -413,9 +407,6 @@ export const useCanvasStore = create<CanvasState>()(
         const pendingOps = get().pendingOperations;
 
         if (pendingOps.has(operationKey)) {
-          console.log(
-            `[CANVAS] Skipping duplicate move operation: ${operationKey}`,
-          );
           return null;
         }
 
@@ -445,9 +436,6 @@ export const useCanvasStore = create<CanvasState>()(
             targetCanvas &&
             targetCanvas.components.some((c) => c.componentId === componentId)
           ) {
-            console.log(
-              `[CANVAS] Component ${componentId} already exists in target canvas ${targetCanvasId}`,
-            );
             return state;
           }
 
@@ -476,12 +464,12 @@ export const useCanvasStore = create<CanvasState>()(
             return c;
           });
 
-          // Remove operation from pending after 100ms
+          // Remove operation from pending after timeout
           setTimeout(() => {
             const ops = get().pendingOperations;
             ops.delete(operationKey);
             set({ pendingOperations: new Set(ops) });
-          }, 100);
+          }, DEDUPLICATION_TIMEOUT);
 
           return { canvases: updatedCanvases };
         });

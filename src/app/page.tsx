@@ -1,61 +1,64 @@
+"use client";
+import { useMcpServers } from "@/components/tambo/mcp-config-modal";
+import { MessageThreadFull } from "@/components/tambo/message-thread-full";
+import SpreadsheetTabs from "@/components/ui/spreadsheet-tabs";
+import { InteractableTabs } from "@/components/ui/interactable-tabs";
 import { ApiKeyCheck } from "@/components/ApiKeyCheck";
-import Image from "next/image";
+import { components, tools } from "@/lib/tambo";
+import { spreadsheetContextHelper } from "@/lib/spreadsheet-context-helper";
+import { spreadsheetSelectionContextHelper } from "@/lib/spreadsheet-selection-context";
+import { TamboProvider } from "@tambo-ai/react";
+import { TamboMcpProvider } from "@tambo-ai/react/mcp";
+import { useState } from "react";
+import { PanelLeftIcon, PanelRightIcon } from "lucide-react";
 
 export default function Home() {
+  const mcpServers = useMcpServers();
+  const [showSpreadsheet, setShowSpreadsheet] = useState(true);
+
+  // You can customize default suggestions via MessageThreadFull internals
+
   return (
-    <div className="min-h-screen p-8 flex flex-col items-center justify-center font-[family-name:var(--font-geist-sans)]">
-      <main className="max-w-2xl w-full space-y-8">
-        <div className="flex flex-col items-center">
-          <a href="https://tambo.co" target="_blank" rel="noopener noreferrer">
-            <Image
-              src="/Octo-Icon.svg"
-              alt="Tambo AI Logo"
-              width={80}
-              height={80}
-              className="mb-4"
-            />
-          </a>
-          <h1 className="text-4xl text-center">tambo analytics template</h1>
-        </div>
+    <ApiKeyCheck>
+      <div className="h-screen flex flex-col overflow-hidden relative">
+        <TamboProvider
+          apiKey={process.env.NEXT_PUBLIC_TAMBO_API_KEY!}
+          tamboUrl={process.env.NEXT_PUBLIC_TAMBO_URL!}
+          components={components}
+          tools={tools}
+          contextHelpers={{
+            spreadsheet: spreadsheetContextHelper,
+            selection: spreadsheetSelectionContextHelper,
+          }}
+        >
+          <TamboMcpProvider mcpServers={mcpServers}>
+            {/* Mobile toggle button */}
+            <button
+              onClick={() => setShowSpreadsheet(!showSpreadsheet)}
+              className="md:hidden fixed top-4 right-4 z-50 p-2 rounded-lg bg-accent hover:bg-accent/80 shadow-lg border border-border"
+              aria-label={showSpreadsheet ? "Show chat" : "Show spreadsheet"}
+            >
+              {showSpreadsheet ? <PanelLeftIcon className="h-5 w-5" /> : <PanelRightIcon className="h-5 w-5" />}
+            </button>
 
-        <div className="w-full space-y-8">
-          <div className="bg-white px-8 py-4">
-            <h2 className="text-xl font-semibold mb-4">Setup Checklist</h2>
-            <ApiKeyCheck>
-              <div className="flex gap-4 flex-wrap">
-                <a
-                  href="/chat"
-                  className="px-6 py-3 rounded-md font-medium shadow-sm transition-colors text-lg mt-4 bg-[#7FFFC3] hover:bg-[#72e6b0] text-gray-800"
-                >
-                  Go to Chat →
-                </a>
+            <div className="flex h-full overflow-hidden">
+              {/* Chat panel - hidden on mobile when spreadsheet is shown */}
+              <div className={`${showSpreadsheet ? 'hidden md:flex' : 'flex'} flex-1 overflow-hidden`}>
+                <MessageThreadFull contextKey="tambo-template" />
               </div>
-            </ApiKeyCheck>
-          </div>
 
-          <div className="bg-white px-8 py-4">
-            <h2 className="text-xl font-semibold mb-4">How it works:</h2>
-            <p className="text-gray-600 mb-4">
-              This template demonstrates drag & drop analytics with AI-generated
-              components.
-            </p>
-            <p className="text-gray-600 mb-4">
-              Ask the AI to create charts and data visualizations, then drag
-              them onto the canvas for organization.
-            </p>
-            <div className="flex gap-4 flex-wrap mt-4">
-              <a
-                href="https://tambo.co/docs"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-6 py-3 rounded-md font-medium transition-colors text-lg mt-4 border border-gray-300 hover:bg-gray-50"
-              >
-                View Docs
-              </a>
+              {/* Spreadsheet panel - responsive width and visibility */}
+              <div className={`${showSpreadsheet ? 'flex' : 'hidden md:flex'} w-full md:w-[60%] overflow-auto`}>
+                {/* Tab metadata interactable for AI */}
+                <InteractableTabs interactableId="TabsState" />
+
+                {/* Visual spreadsheet tabs UI */}
+                <SpreadsheetTabs className="h-full" />
+              </div>
             </div>
-          </div>
-        </div>
-      </main>
-    </div>
+          </TamboMcpProvider>
+        </TamboProvider>
+      </div>
+    </ApiKeyCheck>
   );
 }

@@ -48,7 +48,7 @@ export const ScrollableMessageContainer = React.forwardRef<
       reasoning: message.reasoning,
       componentState: message.componentState,
     }));
-  }, [thread?.messages]);
+  }, [thread.messages]);
 
   const generationStage = thread?.generationStage ?? "IDLE";
 

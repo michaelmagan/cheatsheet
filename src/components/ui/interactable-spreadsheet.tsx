@@ -3,69 +3,21 @@
 import { useSpreadsheetTabsStore } from "@/lib/spreadsheet-tabs-store";
 import { useTamboInteractable, withInteractable } from "@tambo-ai/react";
 import { useEffect, useRef } from "react";
-import { z } from "zod";
+import { interactableSpreadsheetPropsSchema } from "@/schemas/spreadsheet-schemas";
 
 // ============================================
-// Zod Schemas
+// Types
 // ============================================
 
-// Cell types
-const headerCellSchema = z.object({
-  type: z.literal("header"),
-  text: z.string(),
-  nonEditable: z.boolean().optional(),
-  className: z.string().optional(),
-  style: z.record(z.any()).optional(),
-});
-
-const textCellSchema = z.object({
-  type: z.literal("text"),
-  text: z.string(),
-  nonEditable: z.boolean().optional(),
-  className: z.string().optional(),
-  style: z.record(z.any()).optional(),
-});
-
-const numberCellSchema = z.object({
-  type: z.literal("number"),
-  value: z.number(),
-  format: z.string().optional(),
-  nonEditable: z.boolean().optional(),
-  className: z.string().optional(),
-  style: z.record(z.any()).optional(),
-});
-
-const cellSchema = z.union([headerCellSchema, textCellSchema, numberCellSchema]);
-
-const rowSchema = z.object({
-  rowId: z.union([z.string(), z.number()]),
-  cells: z.array(cellSchema),
-  height: z.number().optional(),
-});
-
-const columnSchema = z.object({
-  columnId: z.string(),
-  width: z.number().optional(),
-  resizable: z.boolean().optional(),
-  reorderable: z.boolean().optional(),
-});
-
-const spreadsheetStateSchema = z.object({
-  tabId: z.string().describe("Current tab ID"),
-  name: z.string().describe("Current tab name"),
-  rows: z.array(rowSchema).describe("All rows with cell data"),
-  columns: z.array(columnSchema).describe("Column definitions"),
-  editable: z.boolean().describe("Whether cells can be edited"),
-});
-
-const interactableSpreadsheetPropsSchema = z.object({
-  className: z.string().optional(),
-  state: spreadsheetStateSchema.nullable().optional(),
-});
-
-type InteractableSpreadsheetProps = z.infer<
-  typeof interactableSpreadsheetPropsSchema
-> & {
+type InteractableSpreadsheetProps = {
+  className?: string;
+  state?: {
+    tabId: string;
+    name: string;
+    rows: Array<{ rowId: string | number; cells: unknown[]; height?: number }>;
+    columns: Array<{ columnId: string; width?: number; resizable?: boolean; reorderable?: boolean }>;
+    editable: boolean;
+  } | null;
   onPropsUpdate?: (newProps: Record<string, unknown>) => void;
   interactableId?: string;
 };
@@ -77,7 +29,7 @@ type InteractableSpreadsheetProps = z.infer<
 function SpreadsheetInteractableWrapper(
   props: InteractableSpreadsheetProps,
 ) {
-  const { className, state, onPropsUpdate, interactableId } = props;
+  const { className, onPropsUpdate, interactableId } = props;
   const { updateInteractableComponentProps, interactableComponents } =
     useTamboInteractable();
 

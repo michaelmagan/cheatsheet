@@ -1,4 +1,5 @@
 import type { Row as ReactGridRow, CellChange } from "@silevis/reactgrid";
+import type { Cell, Row, Column } from "@/types/spreadsheet";
 
 // ============================================
 // Cell Reference Utilities (for selection context)
@@ -27,9 +28,15 @@ export function letterToColumnIndex(letter: string): number {
 export function parseCellReference(ref: string): { row: number; col: number } {
   const match = ref.match(/^([A-Z]+)(\d+)$/);
   if (!match) throw new Error(`Invalid cell reference: ${ref}`);
+
+  const rowNumber = parseInt(match[2]);
+  if (rowNumber < 1) {
+    throw new Error(`Invalid row number in cell reference: ${ref}. Row numbers must be >= 1`);
+  }
+
   return {
     col: letterToColumnIndex(match[1]),
-    row: parseInt(match[2]) - 1,
+    row: rowNumber - 1,
   };
 }
 
@@ -80,24 +87,6 @@ interface CellWithValue {
   cellRef: string;
 }
 
-// Type guards for cell types
-interface HeaderCell {
-  type: "header";
-  text: string;
-}
-
-interface TextCell {
-  type: "text";
-  text: string;
-}
-
-interface NumberCell {
-  type: "number";
-  value: number;
-}
-
-type Cell = HeaderCell | TextCell | NumberCell;
-
 // Extract cell values from selection and rows data
 export function extractCellValues(
   selection: SelectionCompat,
@@ -142,8 +131,7 @@ export function extractCellValues(
 // ============================================
 
 // Apply cell changes from ReactGrid to immutable rows array
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function applyChanges(changes: CellChange[], rows: any[], columns: any[]): any[] {
+export function applyChanges(changes: CellChange[], rows: Row[], columns: Column[]): Row[] {
   const newRows = [...rows];
 
   changes.forEach((change) => {
@@ -155,7 +143,7 @@ export function applyChanges(changes: CellChange[], rows: any[], columns: any[])
     const cellIndex = columns.findIndex((col) => col.columnId === change.columnId);
     if (cellIndex === -1) return;
 
-    const cell = { ...row.cells[cellIndex], ...change.newCell };
+    const cell = { ...row.cells[cellIndex], ...change.newCell } as Cell;
     row.cells = [...row.cells];
     row.cells[cellIndex] = cell;
     newRows[rowIndex] = row;
