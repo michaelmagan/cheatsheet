@@ -1,14 +1,16 @@
-# Generative UI Analytics Template
+# Generative UI Spreadsheet Template
 
-This is a generative UI analytics template.
+This is a generative UI spreadsheet template built with Tambo AI.
 
-Generate graphs with natural language and use natural language to interact with and manage the UI.
+Generate and manipulate interactive spreadsheets with natural language, alongside graphs and visualizations.
 
 ## Features
 
+- Generate interactive spreadsheets with natural language
+- Create and manage multiple spreadsheet tabs
+- Update cells and ranges through AI chat
 - Generate graphs inside the chat
-- Drag and drop onto a canvas
-- Edit canvases with natural language in the chat
+- Edit spreadsheets with natural language in the chat
 
 ## Demo
 
@@ -16,9 +18,9 @@ Generate graphs with natural language and use natural language to interact with 
 
 ## Get Started
 
-1. Run `gh repo clone tambo-ai/tambo-analytics-template` for a new project
+1. Clone this repository
 
-2. `cd tambo-analytics-template`
+2. `cd spreadsheet-template`
 
 3. `npm install`
 
@@ -31,11 +33,18 @@ Generate graphs with natural language and use natural language to interact with 
 
 5. Run `npm run dev` and go to `localhost:3000` to use the app!
 
-## Roadmap
+## Key Components
 
-- Test with SQL mcp servers
-- Add a Component for executing SQL
-- Add a component for executing Python Transformations
+### Spreadsheet System
+
+The interactive spreadsheet system is powered by `@silevis/reactgrid` and includes:
+
+- **Spreadsheet Component** (`src/components/tambo/spreadsheet.tsx`): Tambo-registered component for AI interaction
+- **Interactive UI** (`src/components/ui/interactable-spreadsheet.tsx`): Full-featured spreadsheet with cell editing
+- **Tab Management** (`src/components/ui/spreadsheet-tabs.tsx`): Multi-tab spreadsheet interface
+- **State Management** (`src/lib/spreadsheet-tabs-store.ts`): Zustand store for spreadsheet data
+- **Selection Context** (`src/lib/spreadsheet-selection-context.ts`): Manage cell/range selection
+- **AI Tools** (`src/tools/spreadsheet-tools.ts`): Tools for AI to manipulate spreadsheets
 
 ## App structure at a glance
 
@@ -45,12 +54,14 @@ Generate graphs with natural language and use natural language to interact with 
 
 - **Component registration and chat wiring**: See `src/lib/tambo.ts` and `src/app/chat/page.tsx`.
 
-- **Generatable components (created by chat)**: Components the AI can instantiate in the thread, e.g. `src/components/tambo/graph.tsx`, registered in `src/lib/tambo.ts`.
+- **Generatable components (created by chat)**: Components the AI can instantiate in the thread, e.g. `src/components/tambo/spreadsheet.tsx`, `src/components/tambo/graph.tsx`, registered in `src/lib/tambo.ts`.
 
 - **Editable/readable components (stateful UI the chat can modify or inspect)**:
-  - Canvas state in `src/lib/canvas-storage.ts` (Zustand) with canvases and items.
-  - Canvas UI and interactions in `src/components/ui/components-canvas.tsx` and related interactable components like `interactable-tabs.tsx`, `interactable-canvas-details.tsx`.
-  - The chat can update existing components or read current canvas state via the registered tools/hooks that back the chat experience.
+  - Spreadsheet state in `src/lib/spreadsheet-tabs-store.ts` (Zustand) with tabs, cells, and data.
+  - Spreadsheet UI in `src/components/ui/interactable-spreadsheet.tsx` with selection context and utilities.
+  - Tab metadata in `src/lib/canvas-storage.ts` (Zustand).
+  - Tab and spreadsheet interactions via `interactable-tabs.tsx`, `spreadsheet-tabs.tsx`.
+  - The chat can update existing components or read current state via registered tools in `src/tools/spreadsheet-tools.ts`.
 
 For more detailed documentation, visit [Tambo's official docs](https://tambo.co/docs).
 
@@ -60,11 +71,18 @@ Register components the AI can render, with schemas for safe props:
 
 ```tsx
 // src/lib/tambo.ts (excerpt)
+import { Spreadsheet, spreadsheetSchema } from "@/components/tambo/spreadsheet";
 import { Graph, graphSchema } from "@/components/tambo/graph";
 import { DataCard, dataCardSchema } from "@/components/ui/card-data";
 import type { TamboComponent } from "@tambo-ai/react";
 
 export const components: TamboComponent[] = [
+  {
+    name: "Spreadsheet",
+    description: "Interactive spreadsheet with tabs and cell editing",
+    component: Spreadsheet,
+    propsSchema: spreadsheetSchema,
+  },
   {
     name: "Graph",
     description: "Render charts (bar/line/pie)",
@@ -80,17 +98,17 @@ export const components: TamboComponent[] = [
 ];
 ```
 
-Wire the chat and the editable canvas UI:
+Wire the chat with spreadsheet UI:
 
 ```tsx
 // src/app/chat/page.tsx (excerpt)
 "use client";
 import { TamboProvider } from "@tambo-ai/react";
 import { MessageThreadFull } from "@/components/tambo/message-thread-full";
-import ComponentsCanvas from "@/components/ui/components-canvas";
 import { InteractableTabs } from "@/components/ui/interactable-tabs";
-import { InteractableCanvasDetails } from "@/components/ui/interactable-canvas-details";
+import SpreadsheetTabs from "@/components/ui/spreadsheet-tabs";
 import { components, tools } from "@/lib/tambo";
+import { spreadsheetContextHelper } from "@/lib/spreadsheet-context-helper";
 import { useMcpServers } from "@/components/tambo/mcp-config-modal";
 import { TamboMcpProvider } from "@tambo-ai/react/mcp";
 
@@ -101,14 +119,16 @@ export default function Chat() {
       apiKey={process.env.NEXT_PUBLIC_TAMBO_API_KEY!}
       components={components}
       tools={tools}
+      contextHelpers={{
+        spreadsheet: spreadsheetContextHelper,
+      }}
     >
       <TamboMcpProvider mcpServers={mcpServers}>
         <div className="flex h-full">
           <MessageThreadFull contextKey="tambo-template" />
           <div className="hidden md:block w-[60%]">
-            <InteractableTabs interactableId="Tabs" />
-            <InteractableCanvasDetails interactableId="CanvasDetails" />
-            <ComponentsCanvas className="h-full" />
+            <InteractableTabs interactableId="TabsState" />
+            <SpreadsheetTabs className="h-full" />
           </div>
         </div>
       </TamboMcpProvider>
@@ -121,21 +141,36 @@ export default function Chat() {
 
 ### Change what components the AI can control
 
-You can see how the `Graph` component is registered with tambo in `src/lib/tambo.ts`:
+You can see how components like `Spreadsheet` and `Graph` are registered in `src/lib/tambo.ts`:
 
 ```tsx
 const components: TamboComponent[] = [
+  {
+    name: "Spreadsheet",
+    description:
+      "An interactive spreadsheet component with tabs, cell editing, and natural language manipulation. Supports multiple sheets and data operations.",
+    component: Spreadsheet,
+    propsSchema: spreadsheetSchema, // zod schema for the component props
+  },
   {
     name: "Graph",
     description:
       "A component that renders various types of charts (bar, line, pie) using Recharts. Supports customizable data visualization with labels, datasets, and styling options.",
     component: Graph,
-    propsSchema: graphSchema, // zod schema for the component props
+    propsSchema: graphSchema,
   },
   // Add more components
 ];
 ```
 
 You can find more information about the options [here](https://tambo.co/docs/concepts/registering-components)
+
+### Spreadsheet Tools
+
+The AI can manipulate spreadsheets through tools registered in `src/tools/spreadsheet-tools.ts`, enabling:
+- Creating and managing tabs
+- Reading and updating cell values
+- Managing selections and ranges
+- Data transformations
 
 P.S. We use Tambo under the hood to manage chat state, which components the AI can render, and which components the AI can interact with. Tambo is 100% open source — see the repository at [tambo-ai/tambo](https://github.com/tambo-ai/tambo).
