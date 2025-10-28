@@ -11,6 +11,7 @@
 import type { TamboComponent } from "@tambo-ai/react";
 import { TamboTool } from "@tambo-ai/react";
 import { spreadsheetTools } from "@/tools/spreadsheet-tools";
+import { tabTools } from "@/tools/tab-tools";
 
 /**
  * tools
@@ -22,6 +23,7 @@ import { spreadsheetTools } from "@/tools/spreadsheet-tools";
 
 export const tools: TamboTool[] = [
   ...spreadsheetTools,
+  ...tabTools,
 ];
 
 /**

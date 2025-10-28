@@ -55,12 +55,18 @@ function TabsInteractableWrapper(props: InteractableTabsProps) {
 
     const store = useSpreadsheetTabsStore.getState();
 
-    // Update tab names if changed
+    // Process tabs: create new ones or update existing ones
     if (state.tabs) {
       state.tabs.forEach((aiTab) => {
         const existingTab = store.tabs.find((t) => t.id === aiTab.id);
-        if (existingTab && existingTab.name !== aiTab.name) {
-          store.updateTab(aiTab.id, { name: aiTab.name });
+        if (existingTab) {
+          // Update existing tab name if changed
+          if (existingTab.name !== aiTab.name) {
+            store.updateTab(aiTab.id, { name: aiTab.name });
+          }
+        } else {
+          // Create new tab if it doesn't exist
+          store.createTab(aiTab.name);
         }
       });
     }
