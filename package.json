@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">20.0.0"
+    "node": ">=22.0.0",
+    "npm": ">=11.0.0"
   },
   "scripts": {
     "dev": "next dev",
@@ -40,11 +41,9 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.16",
-    "@types/dompurify": "^3.2.0",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/recharts": "^2.0.1",
     "autoprefixer": "^10.4.21",
     "clsx": "^2.1.1",
     "eslint": "^9",
