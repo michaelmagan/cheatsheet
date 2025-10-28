@@ -8,6 +8,7 @@ import {
   MessageInputTextarea,
   MessageInputToolbar,
   MessageInputFileButton,
+  MessageInputMcpConfigButton,
 } from "@/components/tambo/message-input";
 import {
   MessageSuggestions,
@@ -47,8 +48,7 @@ const GitHubButton = React.forwardRef<
 >(({ ...props }, ref) => {
   const { isCollapsed } = useThreadHistoryContext();
 
-  // TODO: Replace with your GitHub repository URL
-  const githubRepoUrl = "https://github.com/yourusername/yourrepo";
+  const githubRepoUrl = "https://github.com/michaelmagan/cheatsheet";
 
   return (
     <a
@@ -160,7 +160,7 @@ export const MessageThreadFull = React.forwardRef<
             <MessageInputToolbar>
               <MessageInputFileButton />
               {/* Uncomment this to enable client-side MCP config modal button */}
-              {/* <MessageInputMcpConfigButton /> */}
+              <MessageInputMcpConfigButton />
               <MessageInputSubmitButton />
             </MessageInputToolbar>
             <MessageInputError />
