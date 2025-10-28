@@ -293,73 +293,6 @@ const updateRange = async (
   }
 };
 
-const createTab = async (name: string) => {
-  try {
-    const store = useSpreadsheetTabsStore.getState();
-    const sanitizedName = sanitizeText(name, MAX_TAB_NAME_LENGTH);
-
-    if (!sanitizedName) {
-      return {
-        success: false,
-        error: "Tab name cannot be empty"
-      };
-    }
-
-    const newTab = store.createTab(sanitizedName);
-
-    return {
-      success: true,
-      message: `Created tab "${sanitizedName}"`,
-      tabId: newTab.id,
-    };
-  } catch (error) {
-    console.error("Error in createTab:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
-    };
-  }
-};
-
-const deleteTab = async (tabId: string) => {
-  try {
-    const store = useSpreadsheetTabsStore.getState();
-    const tab = store.tabs.find((t) => t.id === tabId);
-
-    if (!tab) {
-      return { success: false, error: `Tab ${tabId} not found` };
-    }
-
-    store.removeTab(tabId);
-
-    return {
-      success: true,
-      message: `Deleted tab "${tab.name}"`,
-    };
-  } catch (error) {
-    console.error("Error in deleteTab:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
-    };
-  }
-};
-
-const switchTab = async (tabId: string) => {
-  const store = useSpreadsheetTabsStore.getState();
-  const tab = store.tabs.find((t) => t.id === tabId);
-
-  if (!tab) {
-    return { success: false, error: `Tab ${tabId} not found` };
-  }
-
-  store.setActiveTab(tabId);
-
-  return {
-    success: true,
-    message: `Switched to tab "${tab.name}"`,
-  };
-};
 
 const addColumn = async (count: number = 1) => {
   try {
@@ -823,53 +756,6 @@ export const updateRangeTool = {
     ),
 };
 
-export const createTabTool = {
-  name: "createSpreadsheetTab",
-  description: "Create a new spreadsheet tab with a given name.",
-  tool: createTab,
-  toolSchema: z
-    .function()
-    .args(z.string().describe("Name for the new tab"))
-    .returns(
-      z.object({
-        success: z.boolean(),
-        message: z.string().optional(),
-        tabId: z.string().optional(),
-      }),
-    ),
-};
-
-export const deleteTabTool = {
-  name: "deleteSpreadsheetTab",
-  description: "Delete a spreadsheet tab by ID.",
-  tool: deleteTab,
-  toolSchema: z
-    .function()
-    .args(z.string().describe("ID of the tab to delete"))
-    .returns(
-      z.object({
-        success: z.boolean(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-      }),
-    ),
-};
-
-export const switchTabTool = {
-  name: "switchSpreadsheetTab",
-  description: "Switch to a different spreadsheet tab.",
-  tool: switchTab,
-  toolSchema: z
-    .function()
-    .args(z.string().describe("ID of the tab to switch to"))
-    .returns(
-      z.object({
-        success: z.boolean(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-      }),
-    ),
-};
 
 export const addColumnTool = {
   name: "addSpreadsheetColumn",
@@ -1024,9 +910,6 @@ export const sortByColumnTool = {
 export const spreadsheetTools = [
   updateCellTool,
   updateRangeTool,
-  createTabTool,
-  deleteTabTool,
-  switchTabTool,
   addColumnTool,
   removeColumnTool,
   addRowTool,

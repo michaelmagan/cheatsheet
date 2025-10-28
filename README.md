@@ -73,7 +73,7 @@ This template shows how the AI reads and updates the spreadsheet through three w
 - See: `src/lib/spreadsheet-context-helper.ts`, `src/lib/spreadsheet-selection-context.ts`
 
 **Tools** (Make changes)
-- 13 tools the AI can use to change the spreadsheet
+- 10 tools the AI can use to change the spreadsheet
 - Context helpers and interactables are read-only; tools make changes
 - See: `src/tools/spreadsheet-tools.ts`
 
@@ -89,9 +89,6 @@ This template shows how the AI reads and updates the spreadsheet through three w
 |------|---------|
 | `updateCell` | Update a single cell's value |
 | `updateRange` | Update multiple cells at once |
-| `createTab` | Create a new spreadsheet tab |
-| `deleteTab` | Delete an existing tab |
-| `switchTab` | Switch to a different tab |
 | `addColumn` | Add a new column |
 | `removeColumn` | Remove a column |
 | `addRow` | Add a new row |

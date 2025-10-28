@@ -20,7 +20,7 @@ This is a Next.js application built with the Tambo AI framework for generative U
 
 - Central configuration for Tambo components and tools
 - `components` array: Currently empty - Spreadsheet is NOT a Tambo component, it's a persistent UI element
-- `tools` array: Registers 13 spreadsheet manipulation functions (updateCell, createTab, etc.)
+- `tools` array: Registers 10 spreadsheet manipulation functions (updateCell, updateRange, etc.)
 - AI accesses spreadsheet via context helpers (read) and tools (write), not component registration
 
 **Spreadsheet System**
@@ -38,8 +38,8 @@ The spreadsheet uses a three-layer architecture for AI interaction:
    - Note: `InteractableSpreadsheet` exists but is not currently used
 
 3. **Tools** (Mutations):
-   - `src/tools/spreadsheet-tools.ts` - 13 tools for spreadsheet manipulation
-   - Tools: updateCell, updateRange, createTab, deleteTab, switchTab, addColumn, removeColumn, addRow, removeRow, readCell, readRange, clearRange, sortByColumn
+   - `src/tools/spreadsheet-tools.ts` - 10 tools for spreadsheet manipulation
+   - Tools: updateCell, updateRange, addColumn, removeColumn, addRow, removeRow, readCell, readRange, clearRange, sortByColumn
 
 - State: Zustand store in `src/lib/spreadsheet-tabs-store.ts` manages all spreadsheet data
 - UI: `src/components/ui/spreadsheet-tabs.tsx` - Visual tab interface for users
@@ -100,10 +100,10 @@ Copy `example.env.local` to `.env.local` and add:
 
 AI can manipulate spreadsheets through tools in `src/tools/spreadsheet-tools.ts`:
 
-- Create and manage spreadsheet tabs
 - Update cell values and ranges
+- Add and remove rows and columns
 - Read spreadsheet data
-- Manage selection and formatting
+- Clear ranges and sort data
 
 ### Dependencies
 
