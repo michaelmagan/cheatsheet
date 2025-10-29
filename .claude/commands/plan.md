@@ -44,7 +44,7 @@ Include documentation links."
 Analyze: current implementation, what needs to change, dependencies to consider."
 ```
 
-[Launch 2-4 researchers based on complexity]
+[Launch 2-8 researchers based on complexity]
 
 ---
 
