@@ -76,14 +76,12 @@ function complexOperation(data):
 ### Phase 2: [Phase Name]
 [Continue pattern...]
 
-## Things to Explicitly Avoid
-- Feature/pattern 1 that should NOT be built
-- Feature/pattern 2 that should NOT be built
-- Feature/pattern 3 that should NOT be built
+## Out of Scope (v1)
+List features explicitly excluded from v1 to keep implementation focused. Include brief rationale for each.
 
-## Future Considerations
-- Brief bullet of potential enhancement
-- Brief bullet of potential enhancement
+- **Feature 1** - Brief reason why it's excluded (complexity, separate concern, etc.)
+- **Feature 2** - Brief reason why it's excluded
+- **Feature 3** - Brief reason why it's excluded
 
 ---
 
@@ -96,12 +94,12 @@ function complexOperation(data):
 - Focus on WHAT needs to be done, not every line of code
 - Break into logical phases (typically 3-5 phases)
 - Mark files that can be done in parallel
-- Include "Things to Explicitly Avoid" section for scope boundaries
+- Include single "Out of Scope (v1)" section listing all excluded features with rationale
 
 **DON'T:**
 - Include time estimates or effort levels
 - Write out full code implementations with imports
-- Include future implementation phases (keep those brief in "Future Considerations")
+- Duplicate scope boundaries (combine "avoid" and "future" into single "Out of Scope" section)
 - Add extensive testing sections (just note key testing considerations)
 - Repeat obvious tasks (e.g., "import React")
 
