@@ -9,22 +9,24 @@ An AI-powered, open-source Google Sheets competitor built with [Tambo AI](https:
 
 Build and manipulate interactive spreadsheets with natural language, alongside graphs and visualizations.
 
+## Demo
+Try it yourself: **[CheatSheet](https://cheatsheet.tambo.co)**
+
+### Preview
+https://github.com/user-attachments/assets/da72aa8b-6bc5-468e-8f42-0da685105d22
 
 ## Features
 
 - **Edit with AI**: Use natural language to interact with a spreadsheet.
 - **Cell Selection**: Select cells to have the AI interact with.
 - **Multi-Modal**: Attach Images along with Messages.
+- **Charts and Graphs**: Create visualizations from your spreadsheet data
 - **Model Context Protocol (MCP)**: Connect external data sources and tools
-
-## Demo
-https://github.com/user-attachments/assets/da72aa8b-6bc5-468e-8f42-0da685105d22
 
 ## Roadmap
 
 - **Voice Input**: Use voice input in addition to typing.
 - **Formula Support**: Spreadsheet formulas (SUM, AVERAGE, IF, VLOOKUP, etc.)
-- **Charts and Graphs**: Create visualizations from your spreadsheet data
 - **Better Formatting**: More visual options for tables (colors, borders, fonts, alignment)
 - **Import/Export**: CSV, XLSX, and JSON support
 
