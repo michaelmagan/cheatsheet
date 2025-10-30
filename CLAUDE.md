@@ -90,6 +90,28 @@ Components registered with Tambo must include:
 - `component`: React component
 - `propsSchema`: Zod schema for props validation
 
+## Streaming-Aware Component Development
+
+When building Tambo component, props **stream incrementally** as the LLM generates them. Components must handle partial data gracefully.
+
+
+### Critical Streaming Concepts
+
+**Prop Streaming Behavior:**
+- Props arrive token-by-token during generation
+- Arrays populate incrementally (length increases over time)
+- Nested objects are replaced entirely (not merged)
+- Components render multiple times with partial props
+
+**Best Practices:**
+1. **Always use `useTamboStreamStatus`** for component-specific streaming status
+2. **Safe destructuring with defaults:** `const { prop = default } = props || {}`
+3. **Optional chaining for nested access:** `array?.[0]?.property`
+4. **Validate minimum required props** before rendering
+5. **Show loading states** during streaming for better UX
+
+Read this doc for how to handle this: https://docs.tambo.co/concepts/streaming/component-streaming-status
+
 ### Environment Setup
 
 Copy `example.env.local` to `.env.local` and add:

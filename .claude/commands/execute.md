@@ -66,6 +66,8 @@ After subagents complete:
 3. Note any issues or blockers encountered
 4. Determine next steps
 
+During this step identify if there is any variance from the plan, and either rectify it or make sure to communicate it in the final report.
+
 ---
 
 **Step 5: Validation**
