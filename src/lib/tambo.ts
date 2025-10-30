@@ -12,6 +12,7 @@ import type { TamboComponent } from "@tambo-ai/react";
 import { TamboTool } from "@tambo-ai/react";
 import { spreadsheetTools } from "@/tools/spreadsheet-tools";
 import { tabTools } from "@/tools/tab-tools";
+import { graphComponent } from "@/components/tambo/graph-component";
 
 /**
  * tools
@@ -36,4 +37,5 @@ export const tools: TamboTool[] = [
 export const components: TamboComponent[] = [
   // Spreadsheet is intentionally NOT registered as a component
   // It's automatically created with each tab/canvas
+  graphComponent,
 ];

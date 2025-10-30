@@ -13,7 +13,6 @@ import {
   MAX_SPREADSHEET_COLUMNS,
   MAX_SPREADSHEET_ROWS,
   MAX_TEXT_LENGTH,
-  MAX_TAB_NAME_LENGTH,
 } from "@/lib/constants";
 
 // ============================================
