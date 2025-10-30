@@ -14,11 +14,21 @@ Before I start planning, I want to make sure I understand what we're building. L
 
 ---
 
-**Step 3: Initial Codebase Research**
+**Step 3: Create Planning Todo List**
 
-Launch researcher agent:
+Use TodoWrite to create a planning todo list:
+- Clarify requirements (mark as completed)
+- Initial codebase research
+- Parallel deep research (will break down into subtasks)
+- Synthesize plan document
+
+---
+
+**Step 4: Initial Codebase Research**
+
+Mark "Initial codebase research" as in_progress, then launch researcher agent:
 ```
-/task researcher "Analyze the codebase to understand:
+/task general-purpose "Analyze the codebase to understand:
 1. What existing technologies/packages are in use (check package.json, imports, etc.)
 2. Current architecture patterns
 3. High-level list of files that will likely need modification
@@ -27,39 +37,43 @@ Launch researcher agent:
 Feature context: [confirmed requirements]"
 ```
 
+After agent completes, mark task as completed and update todos with specific research areas discovered.
+
 ---
 
-**Step 4: Parallel Deep Research**
+**Step 5: Parallel Deep Research**
 
-Based on the initial research findings, launch multiple researcher agents in parallel:
+Update todo list with 2-8 specific research tasks based on initial findings. Mark "Parallel deep research" as in_progress.
+
+Launch multiple research agents in parallel (in a SINGLE message with multiple Task calls):
 
 ```
-/task researcher "Research how to implement [specific aspect] using [technology X].
+/task general-purpose "Research how to implement [specific aspect] using [technology X].
 Find: key APIs, best practices, implementation patterns, gotchas.
 Include documentation links."
-```
 
-```
-/task researcher "Deep dive into [specific part of codebase].
+/task general-purpose "Deep dive into [specific part of codebase].
 Analyze: current implementation, what needs to change, dependencies to consider."
+
+[Include 2-8 Task calls in one message based on complexity]
 ```
 
-[Launch 2-8 researchers based on complexity]
+After all agents complete, mark research tasks as completed.
 
 ---
 
-**Step 5: Synthesize Plan**
+**Step 6: Synthesize Plan**
 
-Launch planner agent with all research findings:
-```
-/task planner "Create implementation plan for: [feature name]
+Mark "Synthesize plan document" as in_progress.
 
-Requirements: [confirmed requirements]
+Create the implementation plan document at `.claude/.plans/[feature-name].md` with all research findings:
 
-Research findings:
-- Initial codebase analysis: [summary]
-- Technology research: [summary]
-- Codebase deep dives: [summary]
+**Plan Document Structure:**
+- Feature overview and requirements
+- Architecture approach
+- Implementation phases (ordered steps)
+- Files to modify/create (with specific changes)
+- Testing strategy
+- Potential risks and mitigations
 
-Output to .claude/.plans/[feature-name].md"
-```
+Mark task as completed when plan document is written.
