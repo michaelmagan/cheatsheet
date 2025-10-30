@@ -18,7 +18,7 @@ Build and manipulate interactive spreadsheets with natural language, alongside g
 - **Model Context Protocol (MCP)**: Connect external data sources and tools
 
 ## Demo
-https://github.com/user-attachments/assets/d7b89bf0-5070-4027-99ab-0be3edf7c91d
+https://github.com/user-attachments/assets/da72aa8b-6bc5-468e-8f42-0da685105d22
 
 ## Roadmap
 
