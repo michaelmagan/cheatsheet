@@ -7,6 +7,7 @@ import { ApiKeyCheck } from "@/components/ApiKeyCheck";
 import { components, tools } from "@/lib/tambo";
 import { spreadsheetContextHelper } from "@/lib/spreadsheet-context-helper";
 import { spreadsheetSelectionContextHelper } from "@/lib/spreadsheet-selection-context";
+import { usePersistentContextKey } from "@/hooks/usePersistentContextKey";
 import { TamboProvider } from "@tambo-ai/react";
 import { TamboMcpProvider } from "@tambo-ai/react/mcp";
 import { useState } from "react";
@@ -15,6 +16,7 @@ import { PanelLeftIcon, PanelRightIcon } from "lucide-react";
 export default function Home() {
   const mcpServers = useMcpServers();
   const [showSpreadsheet, setShowSpreadsheet] = useState(true);
+  const contextKey = usePersistentContextKey();
 
   // You can customize default suggestions via MessageThreadFull internals
 
@@ -44,7 +46,7 @@ export default function Home() {
             <div className="flex h-full overflow-hidden">
               {/* Chat panel - hidden on mobile when spreadsheet is shown */}
               <div className={`${showSpreadsheet ? 'hidden md:flex' : 'flex'} flex-1 overflow-hidden`}>
-                <MessageThreadFull contextKey="tambo-template" />
+                {contextKey ? <MessageThreadFull contextKey={contextKey} /> : null}
               </div>
 
               {/* Spreadsheet panel - responsive width and visibility */}
