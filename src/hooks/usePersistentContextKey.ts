@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 
 const STORAGE_KEY = "tambo-context-key";
 
@@ -15,11 +15,9 @@ function createContextKey(prefix: string) {
  * Ensures each user gets a stable context key generated on their first visit.
  */
 export function usePersistentContextKey(prefix = "tambo-template") {
-  const [contextKey, setContextKey] = useState<string | null>(null);
-
-  useEffect(() => {
+  const contextKey = useMemo(() => {
     if (typeof window === "undefined") {
-      return;
+      return null;
     }
 
     const prefixWithSeparator = `${prefix}-`;
@@ -27,8 +25,7 @@ export function usePersistentContextKey(prefix = "tambo-template") {
     try {
       const existing = window.localStorage.getItem(STORAGE_KEY);
       if (existing && existing.startsWith(prefixWithSeparator)) {
-        setContextKey(existing);
-        return;
+        return existing;
       }
     } catch {
       // Ignore storage read errors and fall back to generating a volatile key.
@@ -40,7 +37,8 @@ export function usePersistentContextKey(prefix = "tambo-template") {
     } catch {
       // Ignore storage write errors; the key will remain in-memory for this session.
     }
-    setContextKey(newKey);
+
+    return newKey;
   }, [prefix]);
 
   return contextKey;
