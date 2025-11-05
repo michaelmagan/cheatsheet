@@ -1,9 +1,14 @@
 "use client";
 
-import { useSpreadsheetTabsStore } from "@/lib/spreadsheet-tabs-store";
+import { useFortuneSheet } from "@/lib/fortune-sheet-store";
 import { useTamboInteractable, withInteractable } from "@tambo-ai/react";
 import { useEffect, useRef } from "react";
 import { interactableSpreadsheetPropsSchema } from "@/schemas/spreadsheet-schemas";
+import {
+  buildCelldataLookup,
+  getSheetColumnCount,
+  getSheetRowCount,
+} from "@/lib/fortune-sheet-utils";
 
 // ============================================
 // Types
@@ -12,11 +17,11 @@ import { interactableSpreadsheetPropsSchema } from "@/schemas/spreadsheet-schema
 type InteractableSpreadsheetProps = {
   className?: string;
   state?: {
-    tabId: string;
+    sheetId: string;
     name: string;
-    rows: Array<{ rowId: string | number; cells: unknown[]; height?: number }>;
-    columns: Array<{ columnId: string; width?: number; resizable?: boolean; reorderable?: boolean }>;
-    editable: boolean;
+    rowCount: number;
+    columnCount: number;
+    celldata: Array<{ r: number; c: number; v: unknown }>;
   } | null;
   onPropsUpdate?: (newProps: Record<string, unknown>) => void;
   interactableId?: string;
@@ -32,6 +37,7 @@ function SpreadsheetInteractableWrapper(
   const { className, onPropsUpdate, interactableId } = props;
   const { updateInteractableComponentProps, interactableComponents } =
     useTamboInteractable();
+  const { sheets, activeSheetId } = useFortuneSheet();
 
   const lastEmittedKeyRef = useRef("");
   const onPropsUpdateRef = useRef(onPropsUpdate);
@@ -49,106 +55,69 @@ function SpreadsheetInteractableWrapper(
   // ============================================
   // (No inbound logic needed)
 
-  // ============================================
-  // OUTBOUND: Publish active tab's spreadsheet state to AI
-  // ============================================
+  const activeSheet =
+    sheets.find((sheet) => sheet.id === activeSheetId) ?? sheets[0];
+
+  const snapshot = (() => {
+    if (!activeSheet || !activeSheet.id) {
+      return null;
+    }
+    const rowCount = getSheetRowCount(activeSheet);
+    const columnCount = getSheetColumnCount(activeSheet);
+    const lookup = buildCelldataLookup(activeSheet);
+    const cells: Array<{ r: number; c: number; v: unknown }> = [];
+    lookup.forEach((value, key) => {
+      const [row, col] = key.split(":").map((part) => Number(part));
+      cells.push({ r: row, c: col, v: value });
+    });
+    return {
+      sheetId: activeSheet.id,
+      name: activeSheet.name,
+      rowCount,
+      columnCount,
+      celldata: cells,
+    };
+  })();
+
   useEffect(() => {
-    const handleStoreUpdate = (storeState: ReturnType<typeof useSpreadsheetTabsStore.getState>) => {
-      const activeTab = storeState.tabs.find((t) => t.id === storeState.activeTabId);
-
-      // If no active tab, send null
-      const payload = activeTab
-        ? {
-            tabId: activeTab.id,
-            name: activeTab.name,
-            rows: activeTab.rows,
-            columns: activeTab.columns,
-            editable: activeTab.editable,
-          }
-        : null;
-
-      const key = JSON.stringify(payload);
-      if (key === lastEmittedKeyRef.current) return;
+    if (snapshot === null) {
+      const key = JSON.stringify({ state: null, className });
+      if (key === lastEmittedKeyRef.current) {
+        return;
+      }
       lastEmittedKeyRef.current = key;
-
-      onPropsUpdateRef.current?.({ state: payload, className });
-
+      onPropsUpdateRef.current?.({ state: null, className });
       if (interactableId) {
         const match = interactableComponentsRef.current.find(
           (c) => c.props?.interactableId === interactableId,
         );
         if (match) {
           updateInteractableComponentProps(match.id, {
-            state: payload,
+            state: null,
             className,
           });
         }
       }
-    };
+      return;
+    }
 
-    const unsubscribe = useSpreadsheetTabsStore.subscribe(handleStoreUpdate);
-    return () => unsubscribe();
-  }, [className, interactableId, updateInteractableComponentProps]);
-
-  // ============================================
-  // Initial publish
-  // ============================================
-  useEffect(() => {
-    const storeState = useSpreadsheetTabsStore.getState();
-    const activeTab = storeState.tabs.find((t) => t.id === storeState.activeTabId);
-
-    const initial = activeTab
-      ? {
-          tabId: activeTab.id,
-          name: activeTab.name,
-          rows: activeTab.rows,
-          columns: activeTab.columns,
-          editable: activeTab.editable,
-        }
-      : null;
-
-    const key = JSON.stringify(initial);
+    const payload = { state: snapshot, className };
+    const key = JSON.stringify(payload);
+    if (key === lastEmittedKeyRef.current) {
+      return;
+    }
     lastEmittedKeyRef.current = key;
-    onPropsUpdateRef.current?.({ state: initial, className });
+    onPropsUpdateRef.current?.(payload);
 
     if (interactableId) {
-      updateInteractableComponentProps(interactableId, {
-        state: initial,
-        className,
-      });
+      const match = interactableComponentsRef.current.find(
+        (c) => c.props?.interactableId === interactableId,
+      );
+      if (match) {
+        updateInteractableComponentProps(match.id, payload);
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ============================================
-  // Resolve runtime id and publish snapshot
-  // ============================================
-  useEffect(() => {
-    if (!interactableId) return;
-    const match = interactableComponentsRef.current.find(
-      (c) => c.props?.interactableId === interactableId,
-    );
-    if (!match) return;
-
-    const storeState = useSpreadsheetTabsStore.getState();
-    const activeTab = storeState.tabs.find((t) => t.id === storeState.activeTabId);
-
-    const snapshot = activeTab
-      ? {
-          tabId: activeTab.id,
-          name: activeTab.name,
-          rows: activeTab.rows,
-          columns: activeTab.columns,
-          editable: activeTab.editable,
-        }
-      : null;
-
-    updateInteractableComponentProps(match.id, {
-      state: snapshot,
-      className,
-    });
-    lastEmittedKeyRef.current = JSON.stringify(snapshot);
-  }, [interactableId, updateInteractableComponentProps, className]);
+  }, [snapshot, className, interactableId, updateInteractableComponentProps]);
 
   // No visual UI required; this is just the data bridge
   return <div className={className} aria-hidden />;

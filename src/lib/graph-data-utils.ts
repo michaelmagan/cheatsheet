@@ -1,4 +1,5 @@
-import { Cell } from "@/types/spreadsheet";
+import type { Cell, CellWithRowAndCol } from "@fortune-sheet/core";
+import { parseRangeReference } from "./fortune-sheet-utils";
 
 /**
  * Parses a range reference and extracts the column letter and starting row.
@@ -10,14 +11,13 @@ export function parseRangeForColumn(range: string): {
   column: string;
   startRow: number;
 } {
-  const match = range.match(/^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/);
-  if (!match) {
-    throw new Error(`Invalid range format: ${range}`);
+  const parsed = parseRangeReference(range);
+  if (parsed.start.col !== parsed.end.col) {
+    throw new Error(`Range ${range} must reference a single column.`);
   }
-
   return {
-    column: match[1],
-    startRow: parseInt(match[2], 10),
+    column: columnIndexToLabel(parsed.start.col),
+    startRow: parsed.start.row + 1,
   };
 }
 
@@ -35,61 +35,73 @@ export function getHeaderCellReference(range: string): string {
   return `${headerCell}:${headerCell}`; // Return as range format
 }
 
+function columnIndexToLabel(index: number): string {
+  if (index < 0) {
+    throw new Error(`Column index must be non-negative. Received: ${index}`);
+  }
+  let label = "";
+  let current = index;
+  while (current >= 0) {
+    label = String.fromCharCode((current % 26) + 65) + label;
+    current = Math.floor(current / 26) - 1;
+  }
+  return label;
+}
+
+function resolveCellPrimitive(cell: Cell | null): string | number | boolean | null {
+  if (!cell) {
+    return null;
+  }
+
+  if (cell.v !== undefined && cell.v !== null) {
+    if (typeof cell.v === "object") {
+      return cell.m ?? null;
+    }
+    return cell.v as unknown as string | number | boolean;
+  }
+
+  if (cell.m !== undefined && cell.m !== null) {
+    return cell.m as unknown as string | number | boolean;
+  }
+
+  return null;
+}
+
 /**
  * Extracts numeric values from an array of Cell objects.
- * - For "number" cell type: uses cell.value
- * - For "text" cell type: attempts to coerce to number using parseFloat
- * - For "header" cell type: defaults to 0
- * - Defaults to 0 if coercion fails
+ * Coerces values to numbers where possible.
  */
-export function extractNumericValues(cells: Cell[]): number[] {
-  return cells.map((cell) => {
-    if (cell.type === "number") {
-      return typeof cell.value === "number" ? cell.value : 0;
+export function extractNumericValues(cells: CellWithRowAndCol[]): number[] {
+  return cells.map(({ v }) => {
+    const value = resolveCellPrimitive(v ?? null);
+    if (typeof value === "number") {
+      return value;
     }
-
-    if (cell.type === "text") {
-      const parsed = parseFloat(cell.text);
-      return isNaN(parsed) ? 0 : parsed;
+    if (typeof value === "string") {
+      const parsed = Number(value.replace(/,/g, ""));
+      return Number.isFinite(parsed) ? parsed : 0;
     }
-
-    // For "header" or any other cell type, default to 0
+    if (typeof value === "boolean") {
+      return value ? 1 : 0;
+    }
     return 0;
   });
 }
 
 /**
  * Extracts string labels from an array of Cell objects.
- * - For "text" cell type: uses cell.text
- * - For "number" cell type: converts to string using String(cell.value)
- * - For "header" cell type: uses cell.text
- * - Defaults to empty string if undefined
  */
-export function extractLabels(cells: Cell[]): string[] {
-  const labels = cells.map((cell) => {
-    if (cell.type === "text") {
-      return cell.text ?? "";
+export function extractLabels(cells: CellWithRowAndCol[]): string[] {
+  return cells.map(({ v }) => {
+    const value = resolveCellPrimitive(v ?? null);
+    if (value === null || value === undefined) {
+      return "";
     }
-
-    if (cell.type === "number") {
-      return cell.value !== undefined ? String(cell.value) : "";
+    if (typeof value === "string") {
+      return value;
     }
-
-    if (cell.type === "header") {
-      return cell.text ?? "";
-    }
-
-    // Default to empty string for any other cell type
-    return "";
+    return String(value);
   });
-
-  // Debug logging to help diagnose label issues
-  if (process.env.NODE_ENV === "development") {
-    console.log("[extractLabels] Input cells:", cells);
-    console.log("[extractLabels] Output labels:", labels);
-  }
-
-  return labels;
 }
 
 /**

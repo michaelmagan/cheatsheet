@@ -1,76 +1,82 @@
-/**
- * @file spreadsheet-context-helper.ts
- * @description Context helper to provide read-only spreadsheet data to AI
- */
+"use client";
 
-import { useSpreadsheetTabsStore } from "@/lib/spreadsheet-tabs-store";
-import type { SpreadsheetTab, Cell, Column } from "@/types/spreadsheet";
+import { fortuneSheetStore } from "@/lib/fortune-sheet-store";
+import {
+  buildCelldataLookup,
+  columnIndexToLetter,
+  getCellFromLookup,
+  getSheetColumnCount,
+  getSheetRowCount,
+} from "@/lib/fortune-sheet-utils";
+import type { Cell } from "@fortune-sheet/core";
 
-/**
- * Formats spreadsheet data as a markdown table
- */
-function formatSpreadsheetAsMarkdown(activeTab: SpreadsheetTab): string {
-  const { name, rows, columns } = activeTab;
+function resolveCellDisplay(cell: Cell | null): string {
+  if (!cell) {
+    return "";
+  }
 
-  // Get column headers (excluding ROW_HEADER)
-  const columnIds = columns
-    .filter((col: Column) => col.columnId !== 'ROW_HEADER')
-    .map((col: Column) => col.columnId);
+  if (cell.m !== undefined && cell.m !== null) {
+    return String(cell.m);
+  }
 
-  // Build markdown string
-  let markdown = `# Spreadsheet: ${name}\n\n`;
+  if (cell.v !== undefined && cell.v !== null) {
+    if (typeof cell.v === "object") {
+      return cell.m !== undefined && cell.m !== null ? String(cell.m) : "";
+    }
+    return String(cell.v);
+  }
 
-  // Header row
-  markdown += `|   | ${columnIds.join(' | ')} |\n`;
-  markdown += `|---|${columnIds.map(() => '---').join('|')}|\n`;
+  return "";
+}
 
-  // Data rows (skip first row which is the header)
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    const rowNumber = row.rowId;
-    const cellValues = row.cells
-      .slice(1) // skip first cell (row number cell)
-      .map((cell: Cell) => {
-        if (cell.type === 'number') return String(cell.value ?? '');
-        return cell.text || '';
-      });
+function formatSheetAsMarkdown(): string | null {
+  const { sheets, activeSheetId } = fortuneSheetStore.getState();
+  if (!sheets || sheets.length === 0) {
+    return null;
+  }
 
-    markdown += `| ${rowNumber} | ${cellValues.join(' | ')} |\n`;
+  const targetSheet =
+    sheets.find((sheet) => sheet.id === activeSheetId) ?? sheets[0];
+  if (!targetSheet) {
+    return null;
+  }
+
+  const rowCount = Math.min(getSheetRowCount(targetSheet), 50);
+  const columnCount = Math.min(getSheetColumnCount(targetSheet), 26);
+
+  const lookup = buildCelldataLookup(targetSheet);
+
+  const headers = Array.from({ length: columnCount }, (_, idx) =>
+    columnIndexToLetter(idx)
+  );
+
+  let markdown = `# Spreadsheet: ${targetSheet.name}\n\n`;
+  markdown += `|   | ${headers.join(" | ")} |\n`;
+  markdown += `|---|${headers.map(() => "---").join("|")}|\n`;
+
+  for (let rowIdx = 0; rowIdx < rowCount; rowIdx++) {
+    const cells = [];
+    for (let colIdx = 0; colIdx < columnCount; colIdx++) {
+      const cell = getCellFromLookup(lookup, rowIdx, colIdx);
+      cells.push(resolveCellDisplay(cell));
+    }
+    markdown += `| ${rowIdx + 1} | ${cells.join(" | ")} |\n`;
+  }
+
+  if (rowCount === 0 || columnCount === 0) {
+    markdown += "\n_(Sheet is currently empty)_\n";
   }
 
   return markdown;
 }
 
-/**
- * Context helper that provides the active spreadsheet tab data
- * This is read-only context - AI uses tools for mutations
- */
 export const spreadsheetContextHelper = () => {
   try {
-    // Check if we're in a browser environment
     if (typeof window === "undefined") {
       return null;
     }
 
-    const store = useSpreadsheetTabsStore.getState();
-
-    if (!store || !store.tabs) {
-      return null;
-    }
-
-    const activeTab = store.tabs.find((t) => t.id === store.activeTabId);
-
-    if (!activeTab) {
-      return null;
-    }
-
-    // Ensure all data structures are valid before returning
-    if (!Array.isArray(activeTab.rows) || !Array.isArray(activeTab.columns)) {
-      return null;
-    }
-
-    // Return markdown-formatted spreadsheet data
-    return formatSpreadsheetAsMarkdown(activeTab);
+    return formatSheetAsMarkdown();
   } catch (error) {
     console.error("Error in spreadsheetContextHelper:", error);
     return null;

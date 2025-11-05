@@ -50,7 +50,7 @@ export default function Home() {
               </div>
 
               {/* Spreadsheet panel - responsive width and visibility */}
-              <div className={`${showSpreadsheet ? 'flex' : 'hidden md:flex'} w-full md:w-[60%] overflow-auto`}>
+              <div className={`${showSpreadsheet ? 'flex' : 'hidden md:flex'} min-h-0 min-w-0 flex-1 md:flex-none md:w-[60%] overflow-hidden`}>
                 {/* Tab metadata interactable for AI */}
                 <InteractableTabs interactableId="TabsState" />
 

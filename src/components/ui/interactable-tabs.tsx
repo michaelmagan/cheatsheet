@@ -1,6 +1,10 @@
 "use client";
 
-import { useSpreadsheetTabsStore } from "@/lib/spreadsheet-tabs-store";
+import {
+  createBlankSheet,
+  fortuneSheetStore,
+  useFortuneSheet,
+} from "@/lib/fortune-sheet-store";
 import { useTamboInteractable, withInteractable } from "@tambo-ai/react";
 import { useCallback, useEffect, useRef } from "react";
 import { z } from "zod";
@@ -36,6 +40,8 @@ function TabsInteractableWrapper(props: InteractableTabsProps) {
   const { state, onPropsUpdate, interactableId } = props;
   const { updateInteractableComponentProps, interactableComponents } =
     useTamboInteractable();
+  const { sheets, activeSheetId } = useFortuneSheet();
+  const activeTabId = activeSheetId;
 
   const lastEmittedKeyRef = useRef("");
   const onPropsUpdateRef = useRef(onPropsUpdate);
@@ -52,28 +58,54 @@ function TabsInteractableWrapper(props: InteractableTabsProps) {
   // ============================================
   useEffect(() => {
     if (!state) return;
-
-    const store = useSpreadsheetTabsStore.getState();
-
-    // Process tabs: create new ones or update existing ones
-    if (state.tabs) {
-      state.tabs.forEach((aiTab) => {
-        const existingTab = store.tabs.find((t) => t.id === aiTab.id);
-        if (existingTab) {
-          // Update existing tab name if changed
-          if (existingTab.name !== aiTab.name) {
-            store.updateTab(aiTab.id, { name: aiTab.name });
+    if (state.tabs && state.tabs.length > 0) {
+      fortuneSheetStore.setSheets((prev) => {
+        let didChange = false;
+        const renamed = prev.map((sheet) => {
+          const incoming = state.tabs?.find((t) => t.id === sheet.id);
+          if (incoming && incoming.name && incoming.name !== sheet.name) {
+            didChange = true;
+            return {
+              ...sheet,
+              name: incoming.name,
+            };
           }
-        } else {
-          // Create new tab if it doesn't exist
-          store.createTab(aiTab.name);
-        }
+          return sheet;
+        });
+
+        let result = renamed;
+        const existingIds = new Set(result.map((sheet) => sheet.id));
+        state.tabs.forEach((incoming) => {
+          if (!incoming.id || existingIds.has(incoming.id)) {
+            return;
+          }
+          didChange = true;
+          if (result === renamed) {
+            result = [...renamed];
+          }
+          const order = result.length;
+          const newSheet = {
+            ...createBlankSheet(
+              incoming.name ?? `Sheet ${order + 1}`,
+              order,
+              { isActive: false }
+            ),
+            id: incoming.id,
+          };
+          result.push(newSheet);
+          existingIds.add(incoming.id);
+        });
+
+        return didChange ? result : prev;
       });
     }
 
-    // Set active tab if specified
-    if (state.activeTabId !== undefined && state.activeTabId !== store.activeTabId) {
-      store.setActiveTab(state.activeTabId);
+    if (
+      state.activeTabId !== undefined &&
+      state.activeTabId !== null &&
+      state.activeTabId !== fortuneSheetStore.getState().activeSheetId
+    ) {
+      fortuneSheetStore.setActiveSheet(state.activeTabId);
     }
   }, [state]);
 
@@ -82,18 +114,12 @@ function TabsInteractableWrapper(props: InteractableTabsProps) {
   // ============================================
   const publishState = useCallback(() => {
     try {
-      const store = useSpreadsheetTabsStore.getState();
-
-      if (!store || !Array.isArray(store.tabs)) {
-        return;
-      }
-
       const payload = {
-        tabs: store.tabs.map((tab) => ({
-          id: tab.id,
-          name: tab.name,
+        tabs: sheets.map((sheet) => ({
+          id: sheet.id ?? "",
+          name: sheet.name,
         })),
-        activeTabId: store.activeTabId,
+        activeTabId,
       };
 
       const key = JSON.stringify(payload);
@@ -115,24 +141,13 @@ function TabsInteractableWrapper(props: InteractableTabsProps) {
     } catch (error) {
       console.error("Error in publishState:", error);
     }
-  }, [interactableId, updateInteractableComponentProps]);
+  }, [activeTabId, interactableId, sheets, updateInteractableComponentProps]);
 
   useEffect(() => {
-    const unsubscribe = useSpreadsheetTabsStore.subscribe(publishState);
+    const unsubscribe = fortuneSheetStore.subscribe(publishState);
+    publishState();
     return () => unsubscribe();
   }, [publishState]);
-
-  // ============================================
-  // Initial publish
-  // ============================================
-  useEffect(() => {
-    // Delay initial publish to ensure store is ready
-    const timer = setTimeout(() => {
-      publishState();
-    }, 0);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return <div aria-hidden />;
 }

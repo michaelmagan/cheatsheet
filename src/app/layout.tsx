@@ -1,5 +1,7 @@
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "@fortune-sheet/react/dist/index.css";
+import { Geist, Geist_Mono } from "next/font/google";
+import { FortuneSheetProvider } from "@/lib/fortune-sheet-store";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -21,7 +23,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <FortuneSheetProvider>{children}</FortuneSheetProvider>
       </body>
     </html>
   );

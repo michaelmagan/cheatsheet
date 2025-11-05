@@ -111,15 +111,15 @@ This template shows how the AI reads and updates the spreadsheet through three w
 - `src/app/chat/page.tsx` - Main chat interface with TamboProvider
 
 **Spreadsheet System**
-- `src/components/ui/spreadsheet-tabs.tsx` - Visual tab interface
-- `src/lib/spreadsheet-tabs-store.ts` - Zustand store managing spreadsheet data
-- `src/lib/spreadsheet-utils.ts` - Utility functions for data manipulation
+- `src/components/ui/spreadsheet-tabs.tsx` - FortuneSheet workbook wrapper + tab UI
+- `src/lib/fortune-sheet-store.tsx` - In-memory global store wiring workbook state
+- `src/lib/fortune-sheet-utils.ts` - FortuneSheet-centric helpers (ranges, lookups)
 
 **State Management**
 - `src/lib/canvas-storage.ts` - Canvas/tab state management
-- Powered by `@silevis/reactgrid` library and Zustand
+- Spreadsheet state flows through the FortuneSheet provider and workbook APIs.
 
-**Note on Dependencies:** This project uses `@silevis/reactgrid@4.1.17` with `legacy-peer-deps=true` to work around React 19 peer dependency constraints. The library functions correctly despite the warning.
+**Note on Dependencies:** FortuneSheet (`@fortune-sheet/{core,react}`) powers all spreadsheet interactions.
 
 ## Customizing
 

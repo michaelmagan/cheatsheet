@@ -14,7 +14,7 @@ import {
   transformToRechartsData,
   getHeaderCellReference,
 } from "@/lib/graph-data-utils";
-import { useSpreadsheetTabsStore } from "@/lib/spreadsheet-tabs-store";
+import { useFortuneSheet } from "@/lib/fortune-sheet-store";
 import { useTamboStreamStatus } from "@tambo-ai/react";
 
 /**
@@ -164,7 +164,7 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
       dataSets = []
     } = spreadsheetData || {};
 
-    const activeTabId = useSpreadsheetTabsStore((state) => state.activeTabId);
+    const { sheets, activeSheetId: activeTabId } = useFortuneSheet();
 
     // Fetch labels using single hook
     const labelsData = useSpreadsheetData({ tabId, range: labelsRange });
@@ -418,7 +418,24 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
     }
 
     // Check if data is stale (chart references a different tab than the active one)
-    const isStale = activeTabId !== tabId;
+    const resolvedTabCandidates = [
+      labelsData.resolvedSheetId,
+      ...dataSetResults.map((ds) => ds.resolvedSheetId),
+      ...headerResults.map((hr) => hr.resolvedSheetId),
+    ].filter((candidate): candidate is string => Boolean(candidate));
+
+    const resolvedTabId = resolvedTabCandidates[0] ?? null;
+
+    const activeSheet = sheets.find((sheet) => sheet.id === activeTabId);
+    const tabMatchesActiveName = Boolean(
+      activeSheet && tabId && activeSheet.name === tabId,
+    );
+
+    const isStale = Boolean(
+      activeTabId &&
+        ((resolvedTabId && activeTabId !== resolvedTabId) ||
+          (!resolvedTabId && tabId && !tabMatchesActiveName && activeTabId !== tabId)),
+    );
 
     // Chart rendering logic
     const renderChart = () => {

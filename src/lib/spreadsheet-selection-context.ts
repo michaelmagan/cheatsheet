@@ -1,77 +1,69 @@
-import type { Row as ReactGridRow } from "@silevis/reactgrid";
-import { extractCellValues, formatSelectionAsRange } from "./spreadsheet-utils";
+"use client";
 
-// ============================================
-// Types
-// ============================================
+import { fortuneSheetStore } from "@/lib/fortune-sheet-store";
+import { columnIndexToLetter } from "@/lib/fortune-sheet-utils";
+import type { Selection } from "@fortune-sheet/core";
 
-export interface SpreadsheetSelectionContext {
-  spreadsheetId: string;
-  selectedRange: string; // e.g., "A1:D5"
-  selectedCells: Array<{
-    row: number;
-    col: number;
-    value: string | number | undefined;
-    cellRef: string; // e.g., "B3"
-  }>;
-}
+function selectionToRange(selection: Selection): string | null {
+  const rowStart = selection.row?.[0];
+  const rowEnd = selection.row?.[1] ?? rowStart;
+  const colStart = selection.column?.[0];
+  const colEnd = selection.column?.[1] ?? colStart;
 
-interface CellSelection {
-  start: { row: number; col: number };
-  end: { row: number; col: number };
-}
-
-
-// ============================================
-// Global State
-// ============================================
-
-// Track current selection globally (updated by Spreadsheet component)
-let currentSpreadsheetSelection: SpreadsheetSelectionContext | null = null;
-
-// ============================================
-// Context Helper (for Tambo)
-// ============================================
-
-/**
- * Context helper that Tambo will call to get current spreadsheet selection
- * This provides additional context to the AI about what cells the user has selected
- */
-export const spreadsheetSelectionContextHelper = () => {
-  if (!currentSpreadsheetSelection) {
+  if (
+    rowStart === undefined ||
+    colStart === undefined ||
+    rowStart === null ||
+    colStart === null
+  ) {
     return null;
   }
 
-  const { selectedRange } = currentSpreadsheetSelection;
+  const startRow = Math.min(rowStart, rowEnd ?? rowStart);
+  const endRow = Math.max(rowStart, rowEnd ?? rowStart);
+  const startCol = Math.min(colStart, colEnd ?? colStart);
+  const endCol = Math.max(colStart, colEnd ?? colStart);
 
-  return `User currently has selected: ${selectedRange}`;
-};
+  const startRef = `${columnIndexToLetter(startCol)}${startRow + 1}`;
+  const endRef = `${columnIndexToLetter(endCol)}${endRow + 1}`;
 
-// ============================================
-// Update Function (called by Spreadsheet component)
-// ============================================
-
-/**
- * Function for Spreadsheet component to update selection
- * This should be called whenever the user's selection changes in the spreadsheet
- *
- * @param spreadsheetId - The unique ID of the spreadsheet component
- * @param selection - The current cell selection (or null if no selection)
- * @param rows - The current row data from the spreadsheet
- */
-export function updateSpreadsheetSelection(
-  spreadsheetId: string,
-  selection: CellSelection | null,
-  rows: ReactGridRow[],
-) {
-  if (!selection) {
-    currentSpreadsheetSelection = null;
-    return;
-  }
-
-  currentSpreadsheetSelection = {
-    spreadsheetId,
-    selectedRange: formatSelectionAsRange(selection),
-    selectedCells: extractCellValues(selection, rows),
-  };
+  return startRef === endRef ? startRef : `${startRef}:${endRef}`;
 }
+
+export const spreadsheetSelectionContextHelper = () => {
+  try {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    const workbook = fortuneSheetStore.getWorkbook();
+    if (!workbook) {
+      return null;
+    }
+
+    const selections = workbook.getSelection();
+    if (!selections || selections.length === 0) {
+      return null;
+    }
+
+    const formatted = selections
+      .map((selection) => selectionToRange(selection))
+      .filter((range): range is string => Boolean(range));
+
+    if (formatted.length === 0) {
+      return null;
+    }
+
+    const { sheets, activeSheetId } = fortuneSheetStore.getState();
+    const activeSheet =
+      sheets.find((sheet) => sheet.id === activeSheetId) ?? sheets[0];
+
+    const sheetLabel = activeSheet ? ` on sheet "${activeSheet.name}"` : "";
+    return `User currently has selected: ${formatted.join(
+      ", "
+    )}${sheetLabel}.`;
+  } catch (error) {
+    console.error("Error in spreadsheetSelectionContextHelper:", error);
+    return null;
+  }
+};

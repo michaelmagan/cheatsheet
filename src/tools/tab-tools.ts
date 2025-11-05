@@ -3,7 +3,10 @@
  * @description Tools for AI to manage spreadsheet tabs
  */
 
-import { useSpreadsheetTabsStore } from "@/lib/spreadsheet-tabs-store";
+import {
+  createBlankSheet,
+  fortuneSheetStore,
+} from "@/lib/fortune-sheet-store";
 import { z } from "zod";
 import { MAX_TAB_NAME_LENGTH } from "@/lib/constants";
 
@@ -27,16 +30,38 @@ function sanitizeTabName(name: string): string {
 
 const createTab = async (name?: string) => {
   try {
-    const store = useSpreadsheetTabsStore.getState();
-
+    const { sheets } = fortuneSheetStore.getState();
     const sanitizedName = name ? sanitizeTabName(name) : undefined;
-    const newTab = store.createTab(sanitizedName);
+    const nextName =
+      sanitizedName && sanitizedName.length > 0
+        ? sanitizedName
+        : `Sheet ${sheets.length + 1}`;
+
+    fortuneSheetStore.setSheets((prev) => {
+      const cleared = prev.map((sheet) => ({
+        ...sheet,
+        status: 0,
+      }));
+      const newSheet = createBlankSheet(nextName, cleared.length, {
+        isActive: true,
+      });
+      return [...cleared, newSheet];
+    });
+
+    const updated = fortuneSheetStore.getState();
+    const createdSheet =
+      updated.sheets.find((sheet) => sheet.name === nextName && sheet.status === 1) ??
+      updated.sheets[updated.sheets.length - 1];
+
+    if (!createdSheet?.id) {
+      throw new Error("Unable to determine newly created sheet.");
+    }
 
     return {
       success: true,
-      tabId: newTab.id,
-      tabName: newTab.name,
-      message: `Created new tab "${newTab.name}" with ID ${newTab.id}. The tab is now active.`,
+      tabId: createdSheet.id,
+      tabName: createdSheet.name,
+      message: `Created new sheet "${createdSheet.name}" with ID ${createdSheet.id}. The sheet is now active.`,
     };
   } catch (error) {
     console.error("Error in createTab:", error);

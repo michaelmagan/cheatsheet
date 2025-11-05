@@ -1,5 +1,5 @@
-import type { Cell } from "@/types/spreadsheet";
 import { useSpreadsheetData } from "./useSpreadsheetData";
+import type { CellWithRowAndCol } from "@fortune-sheet/core";
 
 /**
  * useMultipleSpreadsheetData Hook
@@ -26,10 +26,11 @@ export function useMultipleSpreadsheetData(
   ranges: string[]
 ): {
   data: Array<{
-    cells: Cell[] | null;
+    cells: CellWithRowAndCol[] | null;
     loading: boolean;
     error: string | null;
     isStale: boolean;
+    resolvedSheetId: string | null;
   }>;
   loading: boolean;
   error: string | null;
