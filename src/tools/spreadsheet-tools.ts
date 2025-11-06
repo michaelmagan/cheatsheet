@@ -462,6 +462,14 @@ async function updateCell(
     }
 
     const value = normalizeValue(payload);
+    if (typeof (workbook as { setSelection?: unknown }).setSelection === "function") {
+      (workbook as {
+        setSelection: (
+          selection: Array<{ row: [number, number]; column: [number, number] }>,
+          options?: { id?: string }
+        ) => void;
+      }).setSelection([{ row: [row, row], column: [column, column] }], { id: sheetId });
+    }
     workbook.setCellValue(row, column, value, { id: sheetId });
     workbook.calculateFormula(sheetId, {
       row: [row, row],
@@ -579,6 +587,14 @@ async function updateLinearRange(args: {
       const row = startAddress.row + delta.row * index;
       const column = startAddress.column + delta.column * index;
       const normalized = normalizeRangeValue(values[index] ?? null);
+      if (typeof (workbook as { setSelection?: unknown }).setSelection === "function") {
+        (workbook as {
+          setSelection: (
+            selection: Array<{ row: [number, number]; column: [number, number] }>,
+            options?: { id?: string }
+          ) => void;
+        }).setSelection([{ row: [row, row], column: [column, column] }], { id: sheetId });
+      }
       workbook.setCellValue(row, column, normalized, { id: sheetId });
     }
 
