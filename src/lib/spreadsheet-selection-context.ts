@@ -54,9 +54,8 @@ export const spreadsheetSelectionContextHelper = () => {
       return null;
     }
 
-    const { sheets, activeSheetId } = fortuneSheetStore.getState();
     const activeSheet =
-      sheets.find((sheet) => sheet.id === activeSheetId) ?? sheets[0];
+      (typeof workbook.getSheet === "function" && workbook.getSheet()) ?? null;
 
     const sheetLabel = activeSheet ? ` on sheet "${activeSheet.name}"` : "";
     return `User currently has selected: ${formatted.join(

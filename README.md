@@ -75,19 +75,14 @@ This template shows how the AI reads and updates the spreadsheet through three w
 **Context Helpers** (Read-only data)
 - `spreadsheetContextHelper` - Gives the AI the current tab's data as a markdown table
 - `spreadsheetSelectionContextHelper` - Tells the AI what's currently selected
+- `tabContextHelper` - Lists all tabs and highlights the active tab
 - Runs automatically whenever you send a message
-- See: `src/lib/spreadsheet-context-helper.ts`, `src/lib/spreadsheet-selection-context.ts`
+- See: `src/lib/spreadsheet-context-helper.ts`, `src/lib/spreadsheet-selection-context.ts`, `src/lib/tab-context-helper.ts`
 
 **Tools** (Make changes)
-- 10 tools the AI can use to change the spreadsheet
-- Context helpers and interactables are read-only; tools make changes
-- See: `src/tools/spreadsheet-tools.ts`
-
-**Interactables** (Structured metadata)
-- `InteractableTabs` - Sends tab info (names, IDs, active tab) to the AI
-- Components wrapped with `withInteractable` HOC
-- Keeps the AI in sync when tabs change
-- See: `src/components/ui/interactable-tabs.tsx``
+- Spreadsheet + tab tools for the AI to change state or inspect metadata
+- Context helpers are read-only; tools make changes
+- See: `src/tools/spreadsheet-tools.ts`, `src/tools/tab-tools.ts`
 
 ### Spreadsheet Tools Reference
 

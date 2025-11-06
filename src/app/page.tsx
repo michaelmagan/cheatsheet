@@ -2,11 +2,11 @@
 import { useMcpServers } from "@/components/tambo/mcp-config-modal";
 import { MessageThreadFull } from "@/components/tambo/message-thread-full";
 import SpreadsheetTabs from "@/components/ui/spreadsheet-tabs";
-import { InteractableTabs } from "@/components/ui/interactable-tabs";
 import { ApiKeyCheck } from "@/components/ApiKeyCheck";
 import { components, tools } from "@/lib/tambo";
 import { spreadsheetContextHelper } from "@/lib/spreadsheet-context-helper";
 import { spreadsheetSelectionContextHelper } from "@/lib/spreadsheet-selection-context";
+import { tabContextHelper } from "@/lib/tab-context-helper";
 import { usePersistentContextKey } from "@/hooks/usePersistentContextKey";
 import { TamboProvider } from "@tambo-ai/react";
 import { TamboMcpProvider } from "@tambo-ai/react/mcp";
@@ -31,6 +31,7 @@ export default function Home() {
           contextHelpers={{
             spreadsheet: spreadsheetContextHelper,
             selection: spreadsheetSelectionContextHelper,
+            tabs: tabContextHelper,
           }}
         >
           <TamboMcpProvider mcpServers={mcpServers}>
@@ -51,9 +52,6 @@ export default function Home() {
 
               {/* Spreadsheet panel - responsive width and visibility */}
               <div className={`${showSpreadsheet ? 'flex' : 'hidden md:flex'} min-h-0 min-w-0 flex-1 md:flex-none md:w-[60%] overflow-hidden`}>
-                {/* Tab metadata interactable for AI */}
-                <InteractableTabs interactableId="TabsState" />
-
                 {/* Visual spreadsheet tabs UI */}
                 <SpreadsheetTabs className="h-full" />
               </div>

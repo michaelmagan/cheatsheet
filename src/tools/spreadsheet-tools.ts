@@ -26,7 +26,7 @@ import {
   getFunctionsByCategory,
   getFunction,
 } from "@/lib/formula-functions";
-import type { Cell } from "@fortune-sheet/core";
+import type { Cell, Sheet } from "@fortune-sheet/core";
 import type { WorkbookInstance } from "@fortune-sheet/react";
 import { z } from "zod";
 
@@ -47,7 +47,8 @@ type CellEvaluation = {
   error: string | null;
 };
 
-const EXCEL_ERROR_PREFIX = /^#(NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|GETTING_DATA|SPILL!|CALC!|FIELD!|BLOCKED!|UNKNOWN!)/i;
+const EXCEL_ERROR_PREFIX =
+  /^#(NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|GETTING_DATA|SPILL!|CALC!|FIELD!|BLOCKED!|UNKNOWN!|ERROR!)/i;
 
 const cellEvaluationSchema = z.object({
   address: z.string(),
@@ -57,6 +58,31 @@ const cellEvaluationSchema = z.object({
   displayValue: z.string().nullable(),
   formula: z.string().nullable(),
   error: z.string().nullable(),
+});
+
+const cellEvaluationWithStatusSchema = cellEvaluationSchema.extend({
+  success: z.boolean(),
+});
+
+const singleCellUpdateResultSchema = z.object({
+  success: z.boolean(),
+  cell: cellEvaluationWithStatusSchema,
+});
+
+const rangeRowResultSchema = z.object({
+  rowNumber: z.number().int(),
+  success: z.boolean(),
+  cells: z.array(cellEvaluationWithStatusSchema),
+});
+
+const EVALUATION_POLL_INTERVAL_MS = 50;
+const EVALUATION_MAX_ATTEMPTS = 60;
+const FORMULA_ERROR_RESOLUTION =
+  "The formula was written to the cell, but it evaluated to an error. Update the cell with a supported formula or adjust its arguments before proceeding.";
+
+const cellErrorSummarySchema = z.object({
+  address: z.string(),
+  error: z.string(),
 });
 
 function ensureWorkbook(): WorkbookInstance {
@@ -106,7 +132,11 @@ function normalizeValue(cellData: CellDataType): string | number {
     }
     return formula;
   }
-  return sanitizeText(cellData.text);
+  const sanitized = sanitizeText(cellData.text);
+  if (sanitized.startsWith("=")) {
+    return `'${sanitized}`;
+  }
+  return sanitized;
 }
 
 function waitForWorkbookTick(): Promise<void> {
@@ -139,7 +169,11 @@ function toDisplayString(value: unknown): string | null {
   }
 }
 
-function detectErrorFromCell(cell: Cell | null, rawValue: unknown): string | null {
+function detectErrorFromCell(
+  cell: Cell | null,
+  rawValue: unknown,
+  displayValue: string | null
+): string | null {
   if (cell?.ct?.t === "e") {
     const display = cell.m ?? cell.v ?? rawValue;
     return typeof display === "string" ? display : toDisplayString(display);
@@ -147,6 +181,13 @@ function detectErrorFromCell(cell: Cell | null, rawValue: unknown): string | nul
 
   if (typeof rawValue === "string" && EXCEL_ERROR_PREFIX.test(rawValue.trim())) {
     return rawValue;
+  }
+
+  if (
+    typeof displayValue === "string" &&
+    EXCEL_ERROR_PREFIX.test(displayValue.trim())
+  ) {
+    return displayValue;
   }
 
   return null;
@@ -161,22 +202,45 @@ function buildCellEvaluation(
 ): CellEvaluation {
   const label = `${columnIndexToLetter(column)}${row + 1}`;
   const rawValue = workbook.getCellValue(row, column, { id: sheetId });
+  const displayValueRaw = workbook.getCellValue(row, column, {
+    id: sheetId,
+    type: "m",
+  });
+  const formulaValueRaw = workbook.getCellValue(row, column, {
+    id: sheetId,
+    type: "f",
+  });
 
   let lookup = sheetLookup;
+  let sheet: Sheet | undefined;
   if (!lookup) {
-    const sheet = workbook.getSheet({ id: sheetId });
+    sheet = fortuneSheetStore.getSheetById(sheetId) ?? workbook.getSheet({ id: sheetId });
     lookup = sheet ? buildCelldataLookup(sheet) : new Map();
+  } else {
+    sheet = fortuneSheetStore.getSheetById(sheetId) ?? workbook.getSheet({ id: sheetId });
   }
-  const cell = lookup ? getCellFromLookup(lookup, row, column) : null;
-  const formula =
-    cell && typeof cell === "object" && typeof cell.f === "string" ? cell.f : null;
+
+  const cellFromLookup = lookup ? getCellFromLookup(lookup, row, column) : null;
+  const cell = cellFromLookup ?? getCellFromSheetSnapshot(sheet, row, column);
+  let formula =
+    typeof formulaValueRaw === "string" && formulaValueRaw.trim().length > 0
+      ? formulaValueRaw
+      : null;
+  if (!formula && cell && typeof cell === "object" && typeof cell.f === "string") {
+    formula = cell.f;
+  }
+  if (!formula && typeof rawValue === "string" && rawValue.trim().startsWith("=")) {
+    formula = rawValue.trim();
+  }
 
   const displayValue =
-    cell && cell.m !== undefined && cell.m !== null
+    displayValueRaw !== undefined && displayValueRaw !== null
+      ? toDisplayString(displayValueRaw)
+      : cell && cell.m !== undefined && cell.m !== null
       ? String(cell.m)
       : toDisplayString(rawValue);
 
-  const error = detectErrorFromCell(cell, rawValue);
+  const error = detectErrorFromCell(cell, rawValue, displayValue);
 
   return {
     address: label,
@@ -202,6 +266,94 @@ function buildFormulaRules(fn: {
     rules.push(`Example: ${fn.example}`);
   }
   return rules;
+}
+
+function getCellFromSheetSnapshot(
+  sheet: Sheet | undefined,
+  row: number,
+  column: number
+): Cell | null {
+  if (!sheet) {
+    return null;
+  }
+
+  if (Array.isArray(sheet.celldata)) {
+    const match = sheet.celldata.find(
+      (entry) => entry.r === row && entry.c === column,
+    );
+    if (match) {
+      return match.v ?? null;
+    }
+  }
+
+  if (Array.isArray(sheet.data) && Array.isArray(sheet.data[row])) {
+    const value = sheet.data[row]?.[column];
+    if (value && typeof value === "object") {
+      return value as Cell;
+    }
+    if (value !== undefined && value !== null) {
+      return {
+        v: value,
+        m: typeof value === "string" ? value : toDisplayString(value),
+      } as unknown as Cell;
+    }
+  }
+
+  return null;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldContinuePolling(
+  evaluation: CellEvaluation,
+  expectFormula: boolean
+): boolean {
+  if (evaluation.error) {
+    return false;
+  }
+  if (!expectFormula) {
+    return false;
+  }
+
+  const hasValue =
+    evaluation.formula !== null ||
+    evaluation.displayValue !== null ||
+    evaluation.rawValue !== null;
+
+  return !hasValue;
+}
+
+async function waitForCellEvaluation(
+  workbook: WorkbookInstance,
+  sheetId: string,
+  row: number,
+  column: number,
+  options?: { expectFormula?: boolean }
+): Promise<CellEvaluation> {
+  const expectFormula = options?.expectFormula ?? false;
+
+  let evaluation = buildCellEvaluation(workbook, sheetId, row, column);
+  if (!shouldContinuePolling(evaluation, expectFormula)) {
+    return evaluation;
+  }
+
+  await waitForWorkbookTick();
+  evaluation = buildCellEvaluation(workbook, sheetId, row, column);
+  if (!shouldContinuePolling(evaluation, expectFormula)) {
+    return evaluation;
+  }
+
+  for (let attempt = 0; attempt < EVALUATION_MAX_ATTEMPTS; attempt++) {
+    await delay(EVALUATION_POLL_INTERVAL_MS);
+    evaluation = buildCellEvaluation(workbook, sheetId, row, column);
+    if (!shouldContinuePolling(evaluation, expectFormula)) {
+      break;
+    }
+  }
+
+  return evaluation;
 }
 
 function resolveAddress(input: string | number, column?: string) {
@@ -310,14 +462,48 @@ async function updateCell(
       column: [column, column],
     });
 
-    await waitForWorkbookTick();
-    const evaluation = buildCellEvaluation(workbook, sheetId, row, column);
+    const evaluation = await waitForCellEvaluation(workbook, sheetId, row, column, {
+      expectFormula: payload.type === "formula",
+    });
 
     const label = `${columnIndexToLetter(column)}${row + 1}`;
+    const cellResult = {
+      ...evaluation,
+      success: !evaluation.error,
+    };
+
+    if (evaluation.error) {
+      return {
+        success: false,
+        message: `Cell ${label} shows a spreadsheet error after the update.`,
+        error: evaluation.error,
+        writeStatus: "applied_with_error",
+        evaluationStatus: "error",
+        resolution: FORMULA_ERROR_RESOLUTION,
+        evaluation,
+        result: {
+          success: false,
+          cell: cellResult,
+        },
+        errorCells: [
+          {
+            address: label,
+            error: evaluation.error,
+          },
+        ],
+      };
+    }
+
     return {
       success: true,
       message: `Updated cell ${label}`,
+      writeStatus: "applied",
+      evaluationStatus: "ok",
       evaluation,
+      result: {
+        success: true,
+        cell: cellResult,
+      },
     };
   } catch (error) {
     console.error("Error in updateCell:", error);
@@ -392,36 +578,80 @@ async function updateRange(
       column: [resolvedRange.start.col, resolvedRange.end.col],
     });
 
-    await waitForWorkbookTick();
-    const sheet = workbook.getSheet({ id: sheetId });
-    const lookup = sheet ? buildCelldataLookup(sheet) : new Map<string, Cell | null>();
+    const expectsFormulaMatrix = rangeData.map((row) =>
+      row.map((cell) => cell.type === "formula"),
+    );
 
     const evaluations: CellEvaluation[][] = [];
-    for (
-      let r = resolvedRange.start.row;
-      r <= resolvedRange.end.row;
-      r++
-    ) {
+    const rowResults: {
+      rowNumber: number;
+      success: boolean;
+      cells: Array<CellEvaluation & { success: boolean }>;
+    }[] = [];
+
+    for (let r = resolvedRange.start.row; r <= resolvedRange.end.row; r++) {
       const rowEvaluations: CellEvaluation[] = [];
-      for (
-        let c = resolvedRange.start.col;
-        c <= resolvedRange.end.col;
-        c++
-      ) {
-        rowEvaluations.push(
-          buildCellEvaluation(workbook, sheetId, r, c, lookup),
+      const cellsWithStatus: Array<CellEvaluation & { success: boolean }> = [];
+      for (let c = resolvedRange.start.col; c <= resolvedRange.end.col; c++) {
+        const rowOffset = r - resolvedRange.start.row;
+        const colOffset = c - resolvedRange.start.col;
+        const evaluation = await waitForCellEvaluation(
+          workbook,
+          sheetId,
+          r,
+          c,
+          {
+            expectFormula: expectsFormulaMatrix[rowOffset][colOffset],
+          },
         );
+        rowEvaluations.push(evaluation);
+        cellsWithStatus.push({
+          ...evaluation,
+          success: !evaluation.error,
+        });
       }
       evaluations.push(rowEvaluations);
+      rowResults.push({
+        rowNumber: r + 1,
+        success: cellsWithStatus.every((cell) => cell.success),
+        cells: cellsWithStatus,
+      });
     }
 
     const startLabel = `${columnIndexToLetter(resolvedRange.start.col)}${resolvedRange.start.row + 1}`;
     const endLabel = `${columnIndexToLetter(resolvedRange.end.col)}${resolvedRange.end.row + 1}`;
 
+    const errorCells = rowResults
+      .flatMap((row) => row.cells)
+      .filter((cellEval) => !cellEval.success);
+
+    if (errorCells.length > 0) {
+      const errorsSummary = errorCells
+        .map((cellEval) => `${cellEval.address}: ${cellEval.error}`)
+        .join("; ");
+      return {
+        success: false,
+        message: `Range ${startLabel}:${endLabel} contains spreadsheet errors after the update.`,
+        error: errorsSummary,
+        writeStatus: "applied_with_errors",
+        evaluationStatus: "error",
+        resolution: FORMULA_ERROR_RESOLUTION,
+        evaluations,
+        results: rowResults,
+        errorCells: errorCells.map((cellEval) => ({
+          address: cellEval.address,
+          error: cellEval.error ?? "Unknown error",
+        })),
+      };
+    }
+
     return {
       success: true,
       message: `Updated range ${startLabel}:${endLabel}`,
+      writeStatus: "applied",
+      evaluationStatus: "ok",
       evaluations,
+      results: rowResults,
     };
   } catch (error) {
     console.error("Error in updateRange:", error);
@@ -648,15 +878,15 @@ async function listFormulas(options?: { category?: string }) {
       ? getFunctionsByCategory(category)
       : getAllFunctions();
     const functions = baseFunctions.map((fn) => ({
-      ...fn,
-      rules: buildFormulaRules(fn),
+      name: fn.name,
+      description: fn.description,
     }));
     return {
       success: true,
       functions,
       message: category
-        ? `Returned ${functions.length} functions in category "${category}".`
-        : `Returned ${functions.length} spreadsheet functions.`,
+        ? `Returned ${functions.length} functions in category "${category}". This list only includes names and brief descriptions—ask which functions need details, then call getSpreadsheetFormulaHelp for each.`
+        : `Returned ${functions.length} spreadsheet functions. This is a large catalog; capture the function names you care about and call getSpreadsheetFormulaHelp to retrieve detailed rules.`,
     };
   } catch (error) {
     console.error("Error in listFormulas:", error);
@@ -727,7 +957,12 @@ export const updateCellTool = {
         success: z.boolean(),
         message: z.string().optional(),
         error: z.string().optional(),
+        writeStatus: z.string().optional(),
+        evaluationStatus: z.string().optional(),
+        resolution: z.string().optional(),
         evaluation: cellEvaluationSchema.optional(),
+        result: singleCellUpdateResultSchema.optional(),
+        errorCells: z.array(cellErrorSummarySchema).optional(),
       })
     ),
 };
@@ -779,7 +1014,12 @@ export const updateRangeTool = {
         success: z.boolean(),
         message: z.string().optional(),
         error: z.string().optional(),
+        writeStatus: z.string().optional(),
+        evaluationStatus: z.string().optional(),
+        resolution: z.string().optional(),
         evaluations: z.array(z.array(cellEvaluationSchema)).optional(),
+        results: z.array(rangeRowResultSchema).optional(),
+        errorCells: z.array(cellErrorSummarySchema).optional(),
       })
     ),
 };
@@ -935,7 +1175,7 @@ export const clearRangeTool = {
 export const listFormulasTool = {
   name: "listSpreadsheetFormulas",
   description:
-    "List supported spreadsheet functions. Optionally filter by category (Math, Statistical, Text, Logical, Date, Lookup, Financial, Information).",
+    "List the supported spreadsheet functions (names with brief descriptions only). Optionally filter by category (Math, Statistical, Text, Logical, Date, Lookup, Financial, Information). Ask which functions need deeper guidance, then call getSpreadsheetFormulaHelp for those.",
   tool: listFormulas,
   toolSchema: z
     .function()
@@ -949,16 +1189,14 @@ export const listFormulasTool = {
     .returns(
       z.object({
         success: z.boolean(),
-        functions: z.array(
-          z.object({
-            name: z.string(),
-            category: z.string(),
-            signature: z.string(),
-            description: z.string(),
-            example: z.string().optional(),
-            rules: z.array(z.string()),
-          })
-        ).optional(),
+        functions: z
+          .array(
+            z.object({
+              name: z.string(),
+              description: z.string(),
+            })
+          )
+          .optional(),
         message: z.string().optional(),
         error: z.string().optional(),
       })
@@ -968,7 +1206,7 @@ export const listFormulasTool = {
 export const getFormulaHelpTool = {
   name: "getSpreadsheetFormulaHelp",
   description:
-    "Look up metadata for a specific function (signature, description, examples). Function names are case-insensitive.",
+    "Fetch detailed metadata (signature, rules, examples) for a specific function previously surfaced via listSpreadsheetFormulas. Function names are case-insensitive; call repeatedly if you need multiple.",
   tool: getFormulaHelp,
   toolSchema: z
     .function()

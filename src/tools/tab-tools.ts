@@ -2,159 +2,145 @@
 
 /**
  * @file tab-tools.ts
- * @description Tools for AI to manage spreadsheet tabs
+ * @description Minimal tools for the AI to manage spreadsheet tabs
  */
 
-import {
-  createBlankSheet,
-  fortuneSheetStore,
-} from "@/lib/fortune-sheet-store";
+import { fortuneSheetStore } from "@/lib/fortune-sheet-store";
 import type { WorkbookInstance } from "@fortune-sheet/react";
 import { z } from "zod";
 import { MAX_TAB_NAME_LENGTH } from "@/lib/constants";
 
 // ============================================
-// Helper Functions
+// Helpers
 // ============================================
 
-/**
- * Sanitize tab name
- */
-function sanitizeTabName(name: string): string {
+const sanitizeTabName = (name: string) => {
   const trimmed = name.trim();
   return trimmed.length > MAX_TAB_NAME_LENGTH
-    ? trimmed.substring(0, MAX_TAB_NAME_LENGTH)
+    ? trimmed.slice(0, MAX_TAB_NAME_LENGTH)
     : trimmed;
-}
+};
 
-function ensureWorkbook(): WorkbookInstance {
+const requireWorkbook = (): WorkbookInstance => {
   const workbook = fortuneSheetStore.getWorkbook();
   if (!workbook) {
     throw new Error(
-      "Spreadsheet workbook is not ready. Make sure the spreadsheet UI has finished mounting before creating tabs.",
+      "Spreadsheet workbook is not ready. Wait for the spreadsheet to finish loading.",
     );
   }
   return workbook;
-}
+};
 
-async function waitForSheetInStore(
-  sheetId: string,
-  timeoutMs: number = 1500,
-) {
-  const initial = fortuneSheetStore
-    .getState()
-    .sheets.find((sheet) => sheet.id === sheetId);
-  if (initial) {
-    return;
+const detectNewSheet = (
+  before: Set<string>,
+  after: Array<{ id?: string | null }>,
+) => {
+  for (const sheet of after) {
+    if (sheet.id && !before.has(sheet.id)) {
+      return sheet;
+    }
   }
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      unsubscribe();
-      reject(new Error("Timed out waiting for new sheet to register in store."));
-    }, timeoutMs);
-
-    const unsubscribe = fortuneSheetStore.subscribe(() => {
-      const { sheets } = fortuneSheetStore.getState();
-      if (sheets.some((sheet) => sheet.id === sheetId)) {
-        clearTimeout(timeout);
-        unsubscribe();
-        resolve();
-      }
-    });
-  });
-}
+  return after[after.length - 1];
+};
 
 // ============================================
-// Tool Functions
+// Tool implementations
 // ============================================
 
 const createTab = async (name?: string) => {
   try {
-    const workbook = ensureWorkbook();
-    const { sheets } = fortuneSheetStore.getState();
-    const sanitizedName = name ? sanitizeTabName(name) : undefined;
-    const nextName =
-      sanitizedName && sanitizedName.length > 0
-        ? sanitizedName
-        : `Sheet ${sheets.length + 1}`;
-
+    const workbook = requireWorkbook();
+    const existing =
+      typeof workbook.getAllSheets === "function"
+        ? workbook.getAllSheets()
+        : [];
     const existingIds = new Set(
-      sheets.map((sheet) => sheet.id).filter((id): id is string => Boolean(id)),
+      existing
+        .map((sheet) => sheet.id)
+        .filter((id): id is string => Boolean(id)),
     );
 
-    let candidateSheet = createBlankSheet(nextName, sheets.length, {
-      isActive: true,
-    });
-    while (candidateSheet.id && existingIds.has(candidateSheet.id)) {
-      candidateSheet = createBlankSheet(nextName, sheets.length, {
-        isActive: true,
-      });
+    const desiredName =
+      name && name.trim().length > 0
+        ? sanitizeTabName(name)
+        : `Sheet ${existing.length + 1}`;
+
+    workbook.addSheet();
+
+    const updated =
+      typeof workbook.getAllSheets === "function"
+        ? workbook.getAllSheets()
+        : existing;
+    if (updated.length === 0) {
+      throw new Error("Unable to retrieve sheet list after creation.");
     }
 
-    const newSheetId = candidateSheet.id;
-    if (!newSheetId) {
-      throw new Error("Failed to generate a unique sheet identifier.");
+    const newSheet = detectNewSheet(existingIds, updated);
+    if (!newSheet?.id) {
+      throw new Error("Unable to determine the newly created sheet.");
     }
 
-    workbook.addSheet(newSheetId);
-    workbook.setSheetName(nextName, { id: newSheetId });
-    workbook.activateSheet({ id: newSheetId });
-
-    let didSyncUsingWorkbook = false;
-    try {
-      await waitForSheetInStore(newSheetId);
-      didSyncUsingWorkbook = true;
-    } catch (waitError) {
-      console.warn(
-        "createTab: Sheet did not appear in store in time, synchronizing manually.",
-        waitError,
-      );
-      const workbookSheets =
-        typeof workbook.getAllSheets === "function"
-          ? workbook.getAllSheets()
-          : null;
-      if (workbookSheets && workbookSheets.length > 0) {
-        fortuneSheetStore.replaceSheets(workbookSheets);
-        didSyncUsingWorkbook = true;
-      }
-    }
-
-    if (!didSyncUsingWorkbook) {
-      fortuneSheetStore.setSheets((prev) => {
-        const cleared = prev.map((sheet) => ({
-          ...sheet,
-          status: sheet.id === newSheetId ? 1 : 0,
-        }));
-        const alreadyExists = cleared.some((sheet) => sheet.id === newSheetId);
-        if (alreadyExists) {
-          return cleared;
-        }
-        return [...cleared, candidateSheet];
-      });
-    }
-
-    const stateAfterCreation = fortuneSheetStore.getState();
-    const createdSheet =
-      stateAfterCreation.sheets.find((sheet) => sheet.id === newSheetId) ??
-      candidateSheet;
-
-    if (stateAfterCreation.activeSheetId !== newSheetId) {
-      fortuneSheetStore.setActiveSheet(newSheetId);
-    }
-
-    if (!createdSheet?.id) {
-      throw new Error("Unable to determine newly created sheet.");
-    }
+    workbook.setSheetName(desiredName, { id: newSheet.id });
+    workbook.activateSheet({ id: newSheet.id });
 
     return {
       success: true,
-      tabId: createdSheet.id,
-      tabName: createdSheet.name,
-      message: `Created new sheet "${createdSheet.name}" with ID ${createdSheet.id}. The sheet is now active.`,
+      tabId: newSheet.id,
+      tabName: desiredName,
+      message: `Switched to new sheet "${desiredName}" (${newSheet.id}).`,
     };
   } catch (error) {
-    console.error("Error in createTab:", error);
+    console.error("Error in createSpreadsheetTab:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+    };
+  }
+};
+
+const getTabs = async () => {
+  try {
+    const workbook = requireWorkbook();
+    const sheets =
+      typeof workbook.getAllSheets === "function"
+        ? workbook.getAllSheets()
+        : [];
+
+    if (sheets.length === 0) {
+      return {
+        success: true,
+        tabs: [],
+        message: "No sheets are available.",
+      };
+    }
+
+    const active =
+      (typeof workbook.getSheet === "function" && workbook.getSheet()) ??
+      sheets.find((sheet) => sheet.status === 1) ??
+      sheets[0];
+
+    const tabs = sheets.map((sheet, index) => {
+      const id = sheet.id ?? `sheet-${index + 1}`;
+      return {
+        id,
+        name: sheet.name ?? `Sheet ${index + 1}`,
+        isActive: active ? id === active.id : index === 0,
+      };
+    });
+
+    const activeTab = tabs.find((tab) => tab.isActive) ?? tabs[0];
+
+    return {
+      success: true,
+      tabs,
+      activeTabId: activeTab?.id,
+      activeTabName: activeTab?.name,
+      message: activeTab
+        ? `Current sheet is "${activeTab.name}" (${activeTab.id}).`
+        : "Unable to determine the active sheet.",
+    };
+  } catch (error) {
+    console.error("Error in getSpreadsheetTabs:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error occurred",
@@ -163,13 +149,13 @@ const createTab = async (name?: string) => {
 };
 
 // ============================================
-// Tool Definitions
+// Tool metadata
 // ============================================
 
 export const createTabTool = {
   name: "createSpreadsheetTab",
   description:
-    "Create a new spreadsheet tab. Optionally provide a name for the tab. If no name is provided, a default name will be generated (e.g., 'Sheet 2'). The new tab will automatically become the active tab. Returns the tab ID and name.",
+    "Create a new spreadsheet tab. Optionally provide a name for the tab. The new tab becomes active automatically.",
   tool: createTab,
   toolSchema: z
     .function()
@@ -190,8 +176,31 @@ export const createTabTool = {
     ),
 };
 
-// ============================================
-// Export all tools
-// ============================================
+export const getTabsTool = {
+  name: "getSpreadsheetTabs",
+  description: "List all spreadsheet tabs and indicate which one is active.",
+  tool: getTabs,
+  toolSchema: z
+    .function()
+    .args()
+    .returns(
+      z.object({
+        success: z.boolean(),
+        tabs: z
+          .array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+              isActive: z.boolean(),
+            }),
+          )
+          .optional(),
+        activeTabId: z.string().optional(),
+        activeTabName: z.string().optional(),
+        message: z.string().optional(),
+        error: z.string().optional(),
+      }),
+    ),
+};
 
-export const tabTools = [createTabTool];
+export const tabTools = [createTabTool, getTabsTool];
