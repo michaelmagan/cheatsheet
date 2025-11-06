@@ -35,7 +35,7 @@ type CellDataType =
   | { type: "number"; value: number }
   | { type: "formula"; formula: string };
 
-type RangeDataType = Array<Array<CellDataType>>;
+type RangeDataType = Array<Array<CellDataType | null>>;
 
 type CellEvaluation = {
   address: string;
@@ -137,6 +137,13 @@ function normalizeValue(cellData: CellDataType): string | number {
     return `'${sanitized}`;
   }
   return sanitized;
+}
+
+function normalizeRangeValue(cellData: CellDataType | null): string | number {
+  if (cellData === null) {
+    return "";
+  }
+  return normalizeValue(cellData);
 }
 
 function waitForWorkbookTick(): Promise<void> {
@@ -564,7 +571,7 @@ async function updateRange(
       }
     });
 
-    const values = rangeData.map((row) => row.map(normalizeValue));
+    const values = rangeData.map((row) => row.map(normalizeRangeValue));
     workbook.setCellValuesByRange(
       values,
       {
@@ -579,7 +586,7 @@ async function updateRange(
     });
 
     const expectsFormulaMatrix = rangeData.map((row) =>
-      row.map((cell) => cell.type === "formula"),
+      row.map((cell) => (cell?.type === "formula")),
     );
 
     const evaluations: CellEvaluation[][] = [];
@@ -970,7 +977,7 @@ export const updateCellTool = {
 export const updateRangeTool = {
   name: "updateSpreadsheetRange",
   description:
-    "Update a range of cells in the active sheet. Provide A1 notation with a 2D array of cell payloads, or specify row/column boundaries explicitly. When any payload includes a formula, first use listSpreadsheetFormulas to see supported functions and getSpreadsheetFormulaHelp to confirm the required arguments.",
+    "Update a range of cells in the active sheet. Provide A1 notation with a 2D array of cell payloads, or specify row/column boundaries explicitly. When any payload includes a formula, first use listSpreadsheetFormulas to see supported functions and getSpreadsheetFormulaHelp to confirm the required arguments. For large ranges, prefer splitting updates into batches of ten or fewer cells so you can surface intermediate results faster.",
   tool: updateRange,
   toolSchema: z
     .function()
@@ -982,12 +989,15 @@ export const updateRangeTool = {
           z
             .array(
               z.array(
-                z.object({
-                  type: z.enum(["text", "number", "formula"]),
-                  text: z.string().optional(),
-                  value: z.number().optional(),
-                  formula: z.string().optional(),
-                })
+                z.union([
+                  z.object({
+                    type: z.enum(["text", "number", "formula"]),
+                    text: z.string().optional(),
+                    value: z.number().optional(),
+                    formula: z.string().optional(),
+                  }),
+                  z.null(),
+                ])
               )
             )
             .describe("Range data when using A1 notation"),
@@ -998,12 +1008,15 @@ export const updateRangeTool = {
       z
         .array(
           z.array(
-            z.object({
-              type: z.enum(["text", "number", "formula"]),
-              text: z.string().optional(),
-              value: z.number().optional(),
-              formula: z.string().optional(),
-            })
+            z.union([
+              z.object({
+                type: z.enum(["text", "number", "formula"]),
+                text: z.string().optional(),
+                value: z.number().optional(),
+                formula: z.string().optional(),
+              }),
+              z.null(),
+            ])
           )
         )
         .optional()
