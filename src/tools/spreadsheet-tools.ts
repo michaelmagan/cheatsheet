@@ -15,6 +15,7 @@ import {
   getSheetColumnCount,
   buildCelldataLookup,
   getCellFromLookup,
+  findDataExtent,
 } from "@/lib/fortune-sheet-utils";
 import {
   MAX_SPREADSHEET_COLUMNS,
@@ -26,24 +27,22 @@ import {
   getFunctionsByCategory,
   getFunction,
 } from "@/lib/formula-functions";
+import {
+  determineErrorType,
+  getErrorSpecificResolution,
+} from "@/lib/spreadsheet-error-resolver";
 import type { Cell, Sheet } from "@fortune-sheet/core";
 import type { WorkbookInstance } from "@fortune-sheet/react";
+import type {
+  CellEvaluation,
+  CellUpdateRequest,
+  CellValueInput,
+  ReturnDetailsParam,
+} from "@/types/spreadsheet-types";
 import { z } from "zod";
 
-type CellDataType =
-  | { type: "text"; text: string }
-  | { type: "number"; value: number }
-  | { type: "formula"; formula: string };
-
-type CellEvaluation = {
-  address: string;
-  row: number;
-  column: number;
-  rawValue: unknown;
-  displayValue: string | null;
-  formula: string | null;
-  error: string | null;
-};
+// Simplified cell value - just use JavaScript primitives
+type CellValue = CellValueInput;
 
 const EXCEL_ERROR_PREFIX =
   /^#(NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|GETTING_DATA|SPILL!|CALC!|FIELD!|BLOCKED!|UNKNOWN!|ERROR!)/i;
@@ -62,34 +61,37 @@ const cellEvaluationWithStatusSchema = cellEvaluationSchema.extend({
   success: z.boolean(),
 });
 
-const cellPayloadSchema = z.object({
-  type: z.enum(["text", "number", "formula"]),
-  text: z.string().optional(),
-  value: z.number().optional(),
-  formula: z.string().optional(),
-});
+const cellValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.null(),
+]);
 
-const singleCellUpdateResultSchema = z.object({
-  success: z.boolean(),
-  cell: cellEvaluationWithStatusSchema,
+// New optimized schemas for Phase 1
+const errorDetailSchema = z.object({
+  type: z.string(),
+  code: z.string(),
+  resolution: z.string(),
 });
 
 const EVALUATION_POLL_INTERVAL_MS = 50;
 const EVALUATION_MAX_ATTEMPTS = 60;
-const FORMULA_ERROR_RESOLUTION =
-  "The formula was written to the cell, but it evaluated to an error. Update the cell with a supported formula or adjust its arguments before proceeding.";
+const WORKBOOK_READY_TIMEOUT_MS = 5000;
+const WORKBOOK_READY_POLL_INTERVAL_MS = 100;
 
-const cellErrorSummarySchema = z.object({
-  address: z.string(),
-  error: z.string(),
-});
+async function ensureWorkbook(): Promise<WorkbookInstance> {
+  const startTime = Date.now();
 
-function ensureWorkbook(): WorkbookInstance {
-  const workbook = fortuneSheetStore.getWorkbook();
-  if (!workbook) {
-    throw new Error("Spreadsheet workbook is not ready. Ensure the UI is mounted.");
+  while (Date.now() - startTime < WORKBOOK_READY_TIMEOUT_MS) {
+    const workbook = fortuneSheetStore.getWorkbook();
+    if (workbook) {
+      return workbook;
+    }
+    // Wait a bit before checking again
+    await new Promise(resolve => setTimeout(resolve, WORKBOOK_READY_POLL_INTERVAL_MS));
   }
-  return workbook;
+
+  throw new Error("Spreadsheet workbook is not ready after 5 seconds. Ensure the UI is mounted.");
 }
 
 function ensureActiveSheetId(): string {
@@ -113,36 +115,60 @@ function sanitizeText(text: string): string {
 }
 
 function isNumericString(value: string): boolean {
-  return /^[0-9]+$/.test(value.trim());
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return false;
+  }
+  const num = Number(trimmed);
+  return !Number.isNaN(num) && Number.isFinite(num);
 }
 
-function normalizeValue(cellData: CellDataType): string | number {
-  if (cellData.type === "number") {
-    const value = Number(cellData.value);
-    if (!Number.isFinite(value)) {
-      throw new Error(`Invalid number value: ${cellData.value}`);
-    }
-    return value;
-  }
-  if (cellData.type === "formula") {
-    const formula = cellData.formula.trim();
-    if (!formula.startsWith("=")) {
-      return `=${formula}`;
-    }
-    return formula;
-  }
-  const sanitized = sanitizeText(cellData.text);
-  if (sanitized.startsWith("=")) {
-    return `'${sanitized}`;
-  }
-  return sanitized;
-}
-
-function normalizeRangeValue(cellData: CellDataType | null): string | number {
-  if (cellData === null) {
+function normalizeValue(cellData: CellValue): string | number {
+  // Handle empty cells
+  if (cellData === null || cellData === "") {
     return "";
   }
-  return normalizeValue(cellData);
+
+  // Handle numbers
+  if (typeof cellData === "number") {
+    if (!Number.isFinite(cellData)) {
+      throw new Error(`Invalid number: ${cellData}. Must be a finite number.`);
+    }
+    return cellData;
+  }
+
+  // Handle strings
+  if (typeof cellData === "string") {
+    const trimmed = cellData.trim();
+
+    // Empty string after trim
+    if (trimmed === "") {
+      return "";
+    }
+
+    // Formula (starts with =)
+    if (trimmed.startsWith("=")) {
+      return trimmed;
+    }
+
+    // Numeric string conversion
+    if (isNumericString(trimmed)) {
+      return Number(trimmed);
+    }
+
+    // Regular text - escape if it looks like a formula
+    const sanitized = sanitizeText(trimmed);
+    if (sanitized.startsWith("=")) {
+      return `'${sanitized}`;
+    }
+    return sanitized;
+  }
+
+  throw new Error(
+    `Invalid cell value: ${JSON.stringify(cellData)}. ` +
+    `Expected string, number, or null. ` +
+    `Example: ["Name", 42, "=SUM(A1:A10)", null]`
+  );
 }
 
 function waitForWorkbookTick(): Promise<void> {
@@ -180,9 +206,19 @@ function detectErrorFromCell(
   rawValue: unknown,
   displayValue: string | null
 ): string | null {
+  // Check if the cell has error type marker
   if (cell?.ct?.t === "e") {
     const display = cell.m ?? cell.v ?? rawValue;
-    return typeof display === "string" ? display : toDisplayString(display);
+    const displayStr = typeof display === "string" ? display : toDisplayString(display);
+
+    // Verify it's actually an error pattern and not just a zero or other valid value
+    if (displayStr && EXCEL_ERROR_PREFIX.test(displayStr.trim())) {
+      return displayStr;
+    }
+
+    // If cell type is "e" but value doesn't match error pattern, it might be misclassified
+    // Don't treat it as an error (handles case where zero is marked as error type)
+    return null;
   }
 
   if (typeof rawValue === "string" && EXCEL_ERROR_PREFIX.test(rawValue.trim())) {
@@ -418,188 +454,94 @@ function getActiveSheetSnapshot() {
   return { sheetId, sheet };
 }
 
-async function updateCell(
-  rowIdOrAddress: string | number,
-  columnIdOrData?: string | CellDataType,
-  cellDataOrUndefined?: CellDataType
-) {
-  try {
-    const workbook = ensureWorkbook();
-    const { sheetId } = getActiveSheetSnapshot();
 
-    let row: number;
-    let column: number;
-    let payload: CellDataType;
-
-    const isRowColumnCall =
-      (typeof rowIdOrAddress === "number" ||
-        (typeof rowIdOrAddress === "string" && isNumericString(rowIdOrAddress))) &&
-      typeof columnIdOrData === "string";
-
-    if (!isRowColumnCall) {
-      if (typeof rowIdOrAddress !== "string") {
-        throw new Error(
-          "When using row/column notation, provide the column letter as the second argument."
-        );
-      }
-      if (!columnIdOrData) {
-        throw new Error(
-          "When using A1 notation, provide the cell data as the second argument."
-        );
-      }
-      const address = resolveAddress(rowIdOrAddress);
-      row = address.row;
-      column = address.column;
-      payload = columnIdOrData as CellDataType;
-    } else {
-      const address = resolveAddress(rowIdOrAddress, columnIdOrData);
-      row = address.row;
-      column = address.column;
-      if (!cellDataOrUndefined) {
-        throw new Error("Cell data must be provided.");
-      }
-      payload = cellDataOrUndefined;
-    }
-
-    const value = normalizeValue(payload);
-    workbook.setCellValue(row, column, value, { id: sheetId });
-    workbook.calculateFormula(sheetId, {
-      row: [row, row],
-      column: [column, column],
-    });
-
-    const evaluation = await waitForCellEvaluation(workbook, sheetId, row, column, {
-      expectFormula: payload.type === "formula",
-    });
-
-    const label = `${columnIndexToLetter(column)}${row + 1}`;
-    const cellResult = {
-      ...evaluation,
-      success: !evaluation.error,
-    };
-
-    if (evaluation.error) {
-      return {
-        success: false,
-        message: `Cell ${label} shows a spreadsheet error after the update.`,
-        error: evaluation.error,
-        writeStatus: "applied_with_error",
-        evaluationStatus: "error",
-        resolution: FORMULA_ERROR_RESOLUTION,
-        evaluation,
-        result: {
-          success: false,
-          cell: cellResult,
-        },
-        errorCells: [
-          {
-            address: label,
-            error: evaluation.error,
-          },
-        ],
-      };
-    }
-
-    return {
-      success: true,
-      message: `Updated cell ${label}`,
-      writeStatus: "applied",
-      evaluationStatus: "ok",
-      evaluation,
-      result: {
-        success: true,
-        cell: cellResult,
-      },
-    };
-  } catch (error) {
-    console.error("Error in updateCell:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred",
-    };
-  }
-}
-
-async function updateLinearRange(args: {
-  start: string;
-  direction: "horizontal" | "vertical";
-  count: number;
-  values: Array<CellDataType | null>;
+async function updateCells(args: {
+  cells: CellUpdateRequest[];
+  returnDetails?: ReturnDetailsParam;
 }) {
   try {
-    const { start, direction, count, values } = args;
-    const workbook = ensureWorkbook();
+    const { cells, returnDetails } = args;
+    const workbook = await ensureWorkbook();
     const { sheetId, sheet } = getActiveSheetSnapshot();
 
-    if (!Number.isInteger(count) || count < 1) {
-      throw new Error("Count must be a positive integer.");
-    }
-    if (values.length !== count) {
-      throw new Error(
-        `Values length (${values.length}) must match count (${count}).`,
-      );
+    if (cells.length === 0) {
+      throw new Error("Cells array must contain at least one cell.");
     }
 
-    const startAddress = resolveAddress(start);
-    const delta = direction === "vertical" ? { row: 1, column: 0 } : { row: 0, column: 1 };
-    const endRow = startAddress.row + delta.row * (count - 1);
-    const endColumn = startAddress.column + delta.column * (count - 1);
+    const resolvedCells = cells.map((cell, index) => {
+      try {
+        const { row, column } = resolveAddress(cell.address);
 
-    const maxRow = Math.max(startAddress.row, endRow);
-    const maxColumn = Math.max(startAddress.column, endColumn);
+        if (row >= MAX_SPREADSHEET_ROWS) {
+          throw new Error(
+            `Cell ${cell.address} row ${row + 1} exceeds max ${MAX_SPREADSHEET_ROWS}`
+          );
+        }
+        if (column >= MAX_SPREADSHEET_COLUMNS) {
+          throw new Error(
+            `Cell ${cell.address} column exceeds max ${MAX_SPREADSHEET_COLUMNS}`
+          );
+        }
 
-    if (maxRow >= MAX_SPREADSHEET_ROWS) {
-      throw new Error(
-        `Target row ${maxRow + 1} exceeds the spreadsheet limit of ${MAX_SPREADSHEET_ROWS}.`,
-      );
-    }
-    if (maxColumn >= MAX_SPREADSHEET_COLUMNS) {
-      throw new Error(
-        `Target column exceeds the spreadsheet limit of ${MAX_SPREADSHEET_COLUMNS}.`,
-      );
-    }
+        return { address: cell.address, row, column, value: cell.value };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error occurred";
+        throw new Error(
+          `Invalid address at cells[${index}]: ${cell.address}. ${message}`
+        );
+      }
+    });
 
+    const maxRow = Math.max(...resolvedCells.map((c) => c.row));
+    const maxColumn = Math.max(...resolvedCells.map((c) => c.column));
     const rowCount = getSheetRowCount(sheet);
     const columnCount = getSheetColumnCount(sheet);
 
     if (maxRow >= rowCount) {
+      const rowsNeeded = maxRow - rowCount + 1;
       throw new Error(
-        `Target row ${maxRow + 1} is beyond the active sheet's ${rowCount} rows. Add rows first.`,
+        `Some cells are beyond the sheet's ${rowCount} rows. ` +
+          `Call addSpreadsheetRow(${rowsNeeded}) to add ${rowsNeeded} more row(s).`
       );
     }
     if (maxColumn >= columnCount) {
+      const columnsNeeded = maxColumn - columnCount + 1;
       throw new Error(
-        `Target column ${columnIndexToLetter(maxColumn)} is beyond the active sheet's ${columnCount} columns. Add columns first.`,
+        `Some cells are beyond the sheet's ${columnCount} columns. ` +
+          `Call addSpreadsheetColumn(${columnsNeeded}) to add ${columnsNeeded} more column(s).`
       );
     }
 
-    const expectFormulas = values.map((value) => value?.type === "formula");
+    const expectFormulas = resolvedCells.map(
+      (cell) =>
+        typeof cell.value === "string" && cell.value.trim().startsWith("=")
+    );
 
-    for (let index = 0; index < count; index++) {
-      const row = startAddress.row + delta.row * index;
-      const column = startAddress.column + delta.column * index;
-      const normalized = normalizeRangeValue(values[index] ?? null);
+    for (let i = 0; i < resolvedCells.length; i++) {
+      const { row, column, value } = resolvedCells[i];
+      const normalized = normalizeValue(value);
       workbook.setCellValue(row, column, normalized, { id: sheetId });
     }
 
     if (expectFormulas.some(Boolean)) {
+      const minRow = Math.min(...resolvedCells.map((c) => c.row));
+      const minColumn = Math.min(...resolvedCells.map((c) => c.column));
       workbook.calculateFormula(sheetId, {
-        row: [Math.min(startAddress.row, endRow), Math.max(startAddress.row, endRow)],
-        column: [Math.min(startAddress.column, endColumn), Math.max(startAddress.column, endColumn)],
+        row: [minRow, maxRow],
+        column: [minColumn, maxColumn],
       });
     }
 
     const evaluations: Array<CellEvaluation & { success: boolean }> = [];
-
-    for (let index = 0; index < count; index++) {
-      const row = startAddress.row + delta.row * index;
-      const column = startAddress.column + delta.column * index;
+    for (let i = 0; i < resolvedCells.length; i++) {
+      const { row, column } = resolvedCells[i];
       const evaluation = await waitForCellEvaluation(
         workbook,
         sheetId,
         row,
         column,
-        { expectFormula: expectFormulas[index] },
+        { expectFormula: expectFormulas[i] }
       );
       evaluations.push({
         ...evaluation,
@@ -607,42 +549,51 @@ async function updateLinearRange(args: {
       });
     }
 
-    const errorCells = evaluations.filter((cell) => !cell.success);
-    const startLabel = `${columnIndexToLetter(startAddress.column)}${startAddress.row + 1}`;
-    const endLabel =
-      count === 1
-        ? startLabel
-        : `${columnIndexToLetter(endColumn)}${endRow + 1}`;
-    const rangeLabel = count === 1 ? startLabel : `${startLabel}:${endLabel}`;
+    const summary = {
+      total: cells.length,
+      succeeded: evaluations.filter((e) => !e.error).length,
+      failed: evaluations.filter((e) => e.error).length,
+    };
 
-    if (errorCells.length > 0) {
-      const errorMessage = errorCells
-        .map((cell) => `${cell.address}: ${cell.error ?? "Unknown error"}`)
-        .join("; ");
+    const addressList = resolvedCells.map((c) => c.address).join(", ");
+
+    if (summary.failed === 0) {
       return {
-        success: false,
-        message: `Linear range ${rangeLabel} contains spreadsheet errors after the update.`,
-        error: errorMessage,
-        writeStatus: "applied_with_error",
-        evaluationStatus: "error",
-        resolution: FORMULA_ERROR_RESOLUTION,
-        evaluations,
-        errorCells: errorCells.map((cell) => ({
-          address: cell.address,
-          error: cell.error ?? "Unknown error",
-        })),
+        success: true,
+        message: `Updated ${summary.total} cell(s): ${addressList}`,
+        summary,
+        ...(returnDetails && { evaluations }),
       };
     }
 
+    const errorCells = evaluations.filter((cell) => cell.error);
+    const firstError = errorCells[0]!;
+
     return {
-      success: true,
-      message: `Filled ${direction} range ${rangeLabel}.`,
-      writeStatus: "applied",
-      evaluationStatus: "ok",
-      evaluations,
+      success: false,
+      message: `Updated ${summary.succeeded} cells, but ${summary.failed} failed`,
+      summary,
+      firstError: {
+        address: firstError.address,
+        formula: firstError.formula,
+        value: firstError.displayValue,
+        error: {
+          type: determineErrorType(firstError.error!),
+          code: firstError.error!,
+          resolution: getErrorSpecificResolution(firstError.error!),
+        },
+      },
+      ...(summary.failed > 1 && {
+        moreErrors: {
+          count: summary.failed - 1,
+          addresses: errorCells.slice(1).map((e) => e.address),
+          note: "Call getSpreadsheetErrors with these addresses for details",
+        },
+      }),
+      ...(returnDetails && { evaluations }),
     };
   } catch (error) {
-    console.error("Error in updateLinearRange:", error);
+    console.error("Error in updateCells:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error occurred",
@@ -655,7 +606,7 @@ async function addColumn(count: number = 1) {
     if (count < 1) {
       throw new Error("Count must be at least 1.");
     }
-    const workbook = ensureWorkbook();
+    const workbook = await ensureWorkbook();
     const { sheetId, sheet } = getActiveSheetSnapshot();
     const columnCount = getSheetColumnCount(sheet);
     if (columnCount + count > MAX_SPREADSHEET_COLUMNS) {
@@ -681,7 +632,7 @@ async function addColumn(count: number = 1) {
 
 async function removeColumn(columnId: string) {
   try {
-    const workbook = ensureWorkbook();
+    const workbook = await ensureWorkbook();
     const { sheetId, sheet } = getActiveSheetSnapshot();
     const columnIndex = letterToColumnIndex(columnId.toUpperCase());
     const columnCount = getSheetColumnCount(sheet);
@@ -709,7 +660,7 @@ async function addRow(count: number = 1) {
     if (count < 1) {
       throw new Error("Count must be at least 1.");
     }
-    const workbook = ensureWorkbook();
+    const workbook = await ensureWorkbook();
     const { sheetId, sheet } = getActiveSheetSnapshot();
     const rowCount = getSheetRowCount(sheet);
     if (rowCount + count > MAX_SPREADSHEET_ROWS) {
@@ -737,7 +688,7 @@ async function removeRow(rowId: string | number) {
     if (!Number.isFinite(rowNumber) || rowNumber < 1) {
       throw new Error("Row must be a positive integer.");
     }
-    const workbook = ensureWorkbook();
+    const workbook = await ensureWorkbook();
     const { sheetId, sheet } = getActiveSheetSnapshot();
     const rowIndex = rowNumber - 1;
     const rowCount = getSheetRowCount(sheet);
@@ -780,11 +731,26 @@ async function readCell(rowOrAddress: string | number, columnId?: string) {
   }
 }
 
+function resolveCellDisplay(cell: Cell | null): string | null {
+  if (!cell) {
+    return null;
+  }
+  // Return display value (m) if available, otherwise raw value (v)
+  if (cell.m !== undefined && cell.m !== null) {
+    return typeof cell.m === "string" ? cell.m : String(cell.m);
+  }
+  if (cell.v !== undefined && cell.v !== null) {
+    return typeof cell.v === "string" ? cell.v : String(cell.v);
+  }
+  return null;
+}
+
 async function readRange(
   startRowOrRange: string | number,
   startColumn?: string,
   endRow?: string | number,
-  endColumn?: string
+  endColumn?: string,
+  mode?: "summary" | "values" | "full"
 ) {
   try {
     const resolvedRange = resolveRange(
@@ -795,6 +761,72 @@ async function readRange(
     );
     const { sheet } = getActiveSheetSnapshot();
     const lookup = buildCelldataLookup(sheet);
+
+    const startLabel = `${columnIndexToLetter(resolvedRange.start.col)}${resolvedRange.start.row + 1}`;
+    const endLabel = `${columnIndexToLetter(resolvedRange.end.col)}${resolvedRange.end.row + 1}`;
+
+    const rowCount = resolvedRange.end.row - resolvedRange.start.row + 1;
+    const columnCount = resolvedRange.end.col - resolvedRange.start.col + 1;
+    const cellCount = rowCount * columnCount;
+
+    // Auto-select mode based on size if not specified
+    let selectedMode = mode;
+    if (selectedMode === undefined) {
+      selectedMode = cellCount > 100 ? "summary" : "values";
+    }
+
+    // Summary mode: return dimensions + first 3 rows as preview
+    if (selectedMode === "summary") {
+      const preview: Array<Array<string | null>> = [];
+      const previewRows = Math.min(3, rowCount);
+
+      for (let i = 0; i < previewRows; i++) {
+        const row = resolvedRange.start.row + i;
+        const rowData: Array<string | null> = [];
+        for (let col = resolvedRange.start.col; col <= resolvedRange.end.col; col++) {
+          const cell = getCellFromLookup(lookup, row, col);
+          rowData.push(resolveCellDisplay(cell));
+        }
+        preview.push(rowData);
+      }
+
+      return {
+        success: true,
+        mode: "summary" as const,
+        summary: {
+          range: `${startLabel}:${endLabel}`,
+          rowCount,
+          columnCount,
+          totalCells: cellCount,
+        },
+        preview,
+        message: `Showing ${previewRows}-row preview of ${cellCount} cells from ${startLabel}:${endLabel}. Use mode='values' or 'full' for complete data.`,
+        hasMore: rowCount > 3,
+      };
+    }
+
+    // Values mode: return simple 2D array of display values
+    if (selectedMode === "values") {
+      const data: Array<Array<string | null>> = [];
+
+      for (let row = resolvedRange.start.row; row <= resolvedRange.end.row; row++) {
+        const rowData: Array<string | null> = [];
+        for (let col = resolvedRange.start.col; col <= resolvedRange.end.col; col++) {
+          const cell = getCellFromLookup(lookup, row, col);
+          rowData.push(resolveCellDisplay(cell));
+        }
+        data.push(rowData);
+      }
+
+      return {
+        success: true,
+        mode: "values" as const,
+        data,
+        message: `Read ${cellCount} cells from ${startLabel}:${endLabel} (values only)`,
+      };
+    }
+
+    // Full mode: existing behavior (all cell objects)
     const data: Array<Array<unknown>> = [];
 
     for (let row = resolvedRange.start.row; row <= resolvedRange.end.row; row++) {
@@ -805,10 +837,9 @@ async function readRange(
       data.push(rowData);
     }
 
-    const startLabel = `${columnIndexToLetter(resolvedRange.start.col)}${resolvedRange.start.row + 1}`;
-    const endLabel = `${columnIndexToLetter(resolvedRange.end.col)}${resolvedRange.end.row + 1}`;
     return {
       success: true,
+      mode: "full" as const,
       data,
       message: `Read range ${startLabel}:${endLabel}.`,
     };
@@ -828,7 +859,7 @@ async function clearRange(
   endColumn?: string
 ) {
   try {
-    const workbook = ensureWorkbook();
+    const workbook = await ensureWorkbook();
     const { sheetId } = getActiveSheetSnapshot();
     const resolvedRange = resolveRange(
       startRowOrRange,
@@ -859,22 +890,60 @@ async function clearRange(
   }
 }
 
-async function listFormulas(options?: { category?: string }) {
+async function listFormulas(options?: { category?: string; page?: number; pageSize?: number }) {
   try {
     const category = options?.category;
+    const page = options?.page ?? 1;
+    const pageSize = options?.pageSize ?? 20;
+
+    // Validate pagination parameters
+    if (page < 1) {
+      throw new Error("Page must be 1 or greater");
+    }
+    if (pageSize < 1 || pageSize > 100) {
+      throw new Error("Page size must be between 1 and 100");
+    }
+
+    // Get all functions (filtered by category if provided)
     const baseFunctions = category
       ? getFunctionsByCategory(category)
       : getAllFunctions();
-    const functions = baseFunctions.map((fn) => ({
-      name: fn.name,
-      description: fn.description,
-    }));
+
+    // Calculate pagination
+    const totalItems = baseFunctions.length;
+    const totalPages = Math.ceil(totalItems / pageSize);
+    const startIndex = (page - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, totalItems);
+
+    // Get paginated slice
+    const paginatedFunctions = baseFunctions
+      .slice(startIndex, endIndex)
+      .map((fn) => ({
+        name: fn.name,
+        description: fn.description,
+      }));
+
+    // Build message
+    const categoryMessage = category ? ` in category "${category}"` : "";
+    const paginationMessage = totalPages > 1
+      ? ` (page ${page} of ${totalPages})`
+      : "";
+    const message = category
+      ? `Returned ${paginatedFunctions.length} of ${totalItems} functions${categoryMessage}${paginationMessage}. This list only includes names and brief descriptions—ask which functions need details, then call getSpreadsheetFormulaHelp for each.`
+      : `Returned ${paginatedFunctions.length} of ${totalItems} spreadsheet functions${paginationMessage}. This is a large catalog; capture the function names you care about and call getSpreadsheetFormulaHelp to retrieve detailed rules.`;
+
     return {
       success: true,
-      functions,
-      message: category
-        ? `Returned ${functions.length} functions in category "${category}". This list only includes names and brief descriptions—ask which functions need details, then call getSpreadsheetFormulaHelp for each.`
-        : `Returned ${functions.length} spreadsheet functions. This is a large catalog; capture the function names you care about and call getSpreadsheetFormulaHelp to retrieve detailed rules.`,
+      functions: paginatedFunctions,
+      pagination: {
+        page,
+        pageSize,
+        totalItems,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+      message,
     };
   } catch (error) {
     console.error("Error in listFormulas:", error);
@@ -910,61 +979,82 @@ async function getFormulaHelp(args: { functionName: string }) {
   }
 }
 
-export const updateCellTool = {
-  name: "updateSpreadsheetCell",
-  description:
-    "Update a single cell in the active sheet. Provide either A1 notation (e.g., updateSpreadsheetCell('B5', { type: 'text', text: 'Hello' })) or row/column notation (e.g., updateSpreadsheetCell(5, 'B', { type: 'number', value: 42 })). When using formulas, call listSpreadsheetFormulas to confirm the function exists and getSpreadsheetFormulaHelp to review its signature before writing the formula.",
-  tool: updateCell,
-  toolSchema: z
-    .function()
-    .args(
-      z.union([z.string(), z.number()]).describe("Row index or A1 address"),
-      z
-        .union([
-          z.string().describe("Column letter when using row/column notation"),
-          cellPayloadSchema.describe("Cell payload when using A1 notation"),
-        ])
-        .describe("Column letter or cell payload"),
-      cellPayloadSchema
-        .optional()
-        .describe("Cell payload when using row/column arguments"),
-    )
-    .returns(
-      z.object({
-        success: z.boolean(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-        writeStatus: z.string().optional(),
-        evaluationStatus: z.string().optional(),
-        resolution: z.string().optional(),
-        evaluation: cellEvaluationSchema.optional(),
-        result: singleCellUpdateResultSchema.optional(),
-        errorCells: z.array(cellErrorSummarySchema).optional(),
-      })
-    ),
-};
+async function getSpreadsheetInfo() {
+  try {
+    const { sheet } = getActiveSheetSnapshot();
 
-export const updateLinearRangeTool = {
-  name: "updateSpreadsheetLinearRange",
+    // Get active sheet dimensions
+    const activeRows = getSheetRowCount(sheet);
+    const activeColumns = getSheetColumnCount(sheet);
+
+    // Calculate data extent (non-empty cells)
+    const lookup = buildCelldataLookup(sheet);
+    const dataExtent = findDataExtent(lookup);
+
+    // Calculate available capacity
+    const availableRows = MAX_SPREADSHEET_ROWS - activeRows;
+    const availableColumns = MAX_SPREADSHEET_COLUMNS - activeColumns;
+
+    return {
+      success: true,
+      activeSheet: {
+        rows: activeRows,
+        columns: activeColumns,
+      },
+      dataExtent: dataExtent
+        ? {
+            range: `${dataExtent.start}:${dataExtent.end}`,
+            start: dataExtent.start,
+            end: dataExtent.end,
+          }
+        : null,
+      capacity: {
+        availableRows,
+        availableColumns,
+        canAddRows: availableRows > 0,
+        canAddColumns: availableColumns > 0,
+      },
+      limits: {
+        maxRows: MAX_SPREADSHEET_ROWS,
+        maxColumns: MAX_SPREADSHEET_COLUMNS,
+      },
+    };
+  } catch (error) {
+    console.error("Error in getSpreadsheetInfo:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+    };
+  }
+}
+
+export const updateCellsTool = {
+  name: "updateSpreadsheetCells",
   description:
-    "Fill a straight line of cells. Provide a starting address (e.g., 'B3'), choose whether to move horizontally or vertically, specify how many cells to touch, then pass that many payloads. When writing formulas, confirm the syntax with listSpreadsheetFormulas and getSpreadsheetFormulaHelp before updating.",
-  tool: updateLinearRange,
+    "Update one or more cells by specifying exact addresses. This gives you precise control over where each value goes. Works for single cells or batch updates.",
+  tool: updateCells,
   toolSchema: z
     .function()
     .args(
       z.object({
-        start: z.string().describe("Starting cell in A1 notation, e.g., 'B3'"),
-        direction: z
-          .enum(["horizontal", "vertical"])
-          .describe("Fill direction from the starting cell"),
-        count: z
-          .number()
-          .int()
-          .positive()
-          .describe("Number of cells to update"),
-        values: z
-          .array(cellPayloadSchema.or(z.null()))
-          .describe("Exactly count entries describing each cell"),
+        cells: z
+          .array(
+            z.object({
+              address: z.string().describe(
+                "Cell address in A1 notation (e.g., 'B5', 'AA12')"
+              ),
+              value: cellValueSchema.describe(
+                "Cell value. Types: (1) Formula - string starting with '=' like '=SUM(A1:A10)'. (2) Number - number type OR numeric string like 42, '42', -15.5, '-15.5', '1e10'. Numeric strings are auto-converted to numbers. (3) Text - non-numeric string like 'Hello', 'Item 123'. (4) Empty - null or ''."
+              ),
+            })
+          )
+          .describe(
+            "Array of cells to update. Recommended: ~20 cells per call for manageability, but you can include more if needed."
+          ),
+        returnDetails: z
+          .boolean()
+          .optional()
+          .describe("Set to true for detailed per-cell results (uses more tokens)"),
       })
     )
     .returns(
@@ -972,14 +1062,29 @@ export const updateLinearRangeTool = {
         success: z.boolean(),
         message: z.string().optional(),
         error: z.string().optional(),
-        writeStatus: z.string().optional(),
-        evaluationStatus: z.string().optional(),
-        resolution: z.string().optional(),
-        evaluations: z
-          .array(cellEvaluationWithStatusSchema)
-          .optional()
-          .describe("Per-cell results in update order"),
-        errorCells: z.array(cellErrorSummarySchema).optional(),
+        summary: z
+          .object({
+            total: z.number(),
+            succeeded: z.number(),
+            failed: z.number(),
+          })
+          .optional(),
+        firstError: z
+          .object({
+            address: z.string(),
+            formula: z.string().nullable(),
+            value: z.string().nullable(),
+            error: errorDetailSchema,
+          })
+          .optional(),
+        moreErrors: z
+          .object({
+            count: z.number(),
+            addresses: z.array(z.string()),
+            note: z.string(),
+          })
+          .optional(),
+        evaluations: z.array(cellEvaluationWithStatusSchema).optional(),
       })
     ),
 };
@@ -1090,7 +1195,7 @@ export const readCellTool = {
 export const readRangeTool = {
   name: "readSpreadsheetRange",
   description:
-    "Read a rectangular range of cells. Supports A1 notation (e.g., 'A1:C5') or row/column boundaries.",
+    "Read a rectangular range of cells with flexible output modes. Supports A1 notation (e.g., 'A1:C5') or row/column boundaries.",
   tool: readRange,
   toolSchema: z
     .function()
@@ -1098,15 +1203,41 @@ export const readRangeTool = {
       z.union([z.string(), z.number()]).describe("Range (A1) or start row"),
       z.string().optional().describe("Start column"),
       z.union([z.string(), z.number()]).optional().describe("End row"),
-      z.string().optional().describe("End column")
+      z.string().optional().describe("End column"),
+      z.enum(["summary", "values", "full"]).optional().describe("Output mode (auto-selected if not specified)")
     )
     .returns(
-      z.object({
-        success: z.boolean(),
-        data: z.array(z.array(z.any())).optional(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-      })
+      z.union([
+        z.object({
+          success: z.literal(true),
+          mode: z.literal("summary"),
+          summary: z.object({
+            range: z.string().describe("Full range in A1 notation"),
+            rowCount: z.number().describe("Total number of rows in range"),
+            columnCount: z.number().describe("Total number of columns in range"),
+            totalCells: z.number().describe("Total number of cells in range"),
+          }),
+          preview: z.array(z.array(z.string().nullable())).describe("First 3 rows of data as display values"),
+          message: z.string(),
+          hasMore: z.boolean().describe("True if there are more rows beyond the preview"),
+        }),
+        z.object({
+          success: z.literal(true),
+          mode: z.literal("values"),
+          data: z.array(z.array(z.string().nullable())).describe("2D array of display values"),
+          message: z.string(),
+        }),
+        z.object({
+          success: z.literal(true),
+          mode: z.literal("full"),
+          data: z.array(z.array(z.any())).describe("2D array of complete cell objects"),
+          message: z.string(),
+        }),
+        z.object({
+          success: z.literal(false),
+          error: z.string(),
+        }),
+      ])
     ),
 };
 
@@ -1142,7 +1273,9 @@ export const listFormulasTool = {
     .args(
       z
         .object({
-          category: z.string().optional(),
+          category: z.string().optional().describe("Optional category filter (Math, Statistical, Text, Logical, Date, Lookup, Financial, Information)"),
+          page: z.number().int().min(1).optional().describe("Page number (default: 1)"),
+          pageSize: z.number().int().min(1).max(100).optional().describe("Functions per page (default: 20, max: 100)"),
         })
         .optional()
     )
@@ -1156,6 +1289,16 @@ export const listFormulasTool = {
               description: z.string(),
             })
           )
+          .optional(),
+        pagination: z
+          .object({
+            page: z.number().describe("Current page number"),
+            pageSize: z.number().describe("Number of items per page"),
+            totalItems: z.number().describe("Total number of functions available"),
+            totalPages: z.number().describe("Total number of pages"),
+            hasNextPage: z.boolean().describe("Whether there is a next page"),
+            hasPreviousPage: z.boolean().describe("Whether there is a previous page"),
+          })
           .optional(),
         message: z.string().optional(),
         error: z.string().optional(),
@@ -1194,9 +1337,51 @@ export const getFormulaHelpTool = {
     ),
 };
 
+export const getSpreadsheetInfoTool = {
+  name: "getSpreadsheetInfo",
+  description:
+    "Get comprehensive information about the active spreadsheet, including dimensions, data extent, and capacity for expansion.",
+  tool: getSpreadsheetInfo,
+  toolSchema: z
+    .function()
+    .args()
+    .returns(
+      z.union([
+        z.object({
+          success: z.literal(true),
+          activeSheet: z.object({
+            rows: z.number().describe("Current number of rows in the active sheet"),
+            columns: z.number().describe("Current number of columns in the active sheet"),
+          }),
+          dataExtent: z
+            .object({
+              range: z.string().describe("Full range of non-empty cells (e.g., 'A1:C10')"),
+              start: z.string().describe("Top-left cell of data range (e.g., 'A1')"),
+              end: z.string().describe("Bottom-right cell of data range (e.g., 'C10')"),
+            })
+            .nullable()
+            .describe("Extent of non-empty cells, or null if sheet is empty"),
+          capacity: z.object({
+            availableRows: z.number().describe("Number of additional rows that can be added"),
+            availableColumns: z.number().describe("Number of additional columns that can be added"),
+            canAddRows: z.boolean().describe("Whether more rows can be added"),
+            canAddColumns: z.boolean().describe("Whether more columns can be added"),
+          }),
+          limits: z.object({
+            maxRows: z.number().describe("Maximum rows allowed in the spreadsheet"),
+            maxColumns: z.number().describe("Maximum columns allowed in the spreadsheet"),
+          }),
+        }),
+        z.object({
+          success: z.literal(false),
+          error: z.string(),
+        }),
+      ])
+    ),
+};
+
 export const spreadsheetTools = [
-  updateCellTool,
-  updateLinearRangeTool,
+  updateCellsTool,
   addColumnTool,
   removeColumnTool,
   addRowTool,
@@ -1206,4 +1391,5 @@ export const spreadsheetTools = [
   clearRangeTool,
   listFormulasTool,
   getFormulaHelpTool,
+  getSpreadsheetInfoTool,
 ];

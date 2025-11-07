@@ -137,11 +137,23 @@ function sanitizeSheetMetadata(sheet: Sheet): Sheet {
     delete (rawConfig as Record<string, unknown>).rowlen;
   }
 
+  // Additional safety checks to ensure all dimensions are finite numbers > 0
+  // This prevents "NaN is an invalid value for the `width` css style property" errors
+  const safeDefaultRowHeight = Number.isFinite(defaultRowHeight) && defaultRowHeight > 0
+    ? defaultRowHeight
+    : DEFAULT_ROW_HEIGHT;
+  const safeDefaultColWidth = Number.isFinite(defaultColWidth) && defaultColWidth > 0
+    ? defaultColWidth
+    : DEFAULT_COLUMN_WIDTH;
+  const safeZoomRatio = Number.isFinite(zoomRatio) && zoomRatio > 0
+    ? zoomRatio
+    : DEFAULT_ZOOM_RATIO;
+
   return {
     ...sheet,
-    defaultRowHeight,
-    defaultColWidth,
-    zoomRatio,
+    defaultRowHeight: safeDefaultRowHeight,
+    defaultColWidth: safeDefaultColWidth,
+    zoomRatio: safeZoomRatio,
     config: rawConfig as Sheet["config"],
   };
 }

@@ -10,7 +10,8 @@
 
 import type { TamboComponent } from "@tambo-ai/react";
 import { TamboTool } from "@tambo-ai/react";
-import { spreadsheetTools } from "@/tools/spreadsheet-tools";
+import { spreadsheetTools, getSpreadsheetInfoTool } from "@/tools/spreadsheet-tools";
+import { validateSpreadsheetFormulaTool, getSpreadsheetErrorsTool } from "@/tools/spreadsheet-validation-tools";
 import { tabTools } from "@/tools/tab-tools";
 import { graphComponent } from "@/components/tambo/graph-component";
 
@@ -23,7 +24,13 @@ import { graphComponent } from "@/components/tambo/graph-component";
  */
 
 export const tools: TamboTool[] = [
+  // Validation tools (placed first for discoverability)
+  validateSpreadsheetFormulaTool,
+  getSpreadsheetErrorsTool,
+  getSpreadsheetInfoTool,
+  // Spreadsheet tools
   ...spreadsheetTools,
+  // Tab tools
   ...tabTools,
 ];
 
