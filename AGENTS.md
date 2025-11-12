@@ -27,7 +27,7 @@ AI-powered spreadsheet using **Tambo** (https://tambo.co) + FortuneSheet. See ht
 - `TabsState` - Sheet ids/names/active tab (interactable)
 
 **Tools:** `src/tools/spreadsheet-tools.ts`
-- updateCell, updateRange, readCell, readRange
+- updateCell, updateRange, **updateStyles**, readCell, readRange
 - addRow, removeRow, addColumn, removeColumn
 - clearRange, sortByColumn
 
