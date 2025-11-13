@@ -43,6 +43,7 @@ import { z } from "zod";
 
 // Simplified cell value - just use JavaScript primitives
 type CellValue = CellValueInput;
+type WorkbookFormatAttribute = Parameters<WorkbookInstance["setCellFormatByRange"]>[0];
 
 const EXCEL_ERROR_PREFIX =
   /^#(NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|GETTING_DATA|SPILL!|CALC!|FIELD!|BLOCKED!|UNKNOWN!|ERROR!)/i;
@@ -61,11 +62,87 @@ const cellEvaluationWithStatusSchema = cellEvaluationSchema.extend({
   success: z.boolean(),
 });
 
-const cellValueSchema = z.union([
-  z.string(),
-  z.number(),
-  z.null(),
-]);
+const cellValueSchema = z.union([z.string(), z.number(), z.null()]);
+
+const hexColorPattern = /^#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+const styleOptionsSchema = z
+  .object({
+    bold: z.boolean().nullish(),
+    italic: z.boolean().nullish(),
+    underline: z.boolean().nullish(),
+    strikethrough: z.boolean().nullish(),
+    fontFamily: z.string().min(1).max(100).nullish(),
+    fontSize: z.number().int().min(6).max(200).nullish(),
+    fontColor: z
+      .union([
+        z
+          .string()
+          .min(1)
+          .regex(hexColorPattern, "Colors must be hex strings like '#FFAA00'")
+          .describe("Hex color (supports #RGB or #RRGGBB)"),
+        z.literal(null),
+      ])
+      .optional(),
+    backgroundColor: z
+      .union([
+        z
+          .string()
+          .min(1)
+          .regex(hexColorPattern, "Colors must be hex strings like '#FFAA00'")
+          .describe("Hex color (supports #RGB or #RRGGBB)"),
+        z.literal(null),
+      ])
+      .optional(),
+    horizontalAlign: z.enum(["left", "center", "right"]).nullish(),
+    verticalAlign: z.enum(["top", "middle", "bottom"]).nullish(),
+    textWrap: z.enum(["clip", "overflow", "wrap"]).nullish(),
+    textRotation: z
+      .enum(["none", "angleup", "angledown", "vertical", "rotation-up", "rotation-down"])
+      .nullish(),
+  })
+  .refine(
+    (style) => Object.values(style).some((value) => value !== undefined),
+    { message: "Provide at least one style property to update." }
+  );
+
+const styleTargetSchema = z
+  .object({
+    range: z
+      .string()
+      .min(1)
+      .optional()
+      .nullable()
+      .describe("A1-style range (e.g., 'B2:D5'). Required if coordinates are not provided."),
+    startRow: z.union([z.string(), z.number()]).nullish(),
+    startColumn: z.string().min(1).nullish(),
+    endRow: z.union([z.string(), z.number()]).nullish(),
+    endColumn: z.string().min(1).nullish(),
+    style: styleOptionsSchema,
+  })
+  .refine(
+    (target) =>
+      (typeof target.range === "string" && target.range.trim().length > 0) ||
+      (target.startRow !== undefined &&
+        target.startRow !== null &&
+        !!target.startColumn &&
+        target.endRow !== undefined &&
+        target.endRow !== null &&
+        !!target.endColumn),
+    {
+      message:
+        "Targets must specify either a 'range' or full start/end row+column coordinates.",
+    }
+  );
+
+type StyleOptionsInput = z.infer<typeof styleOptionsSchema>;
+type StyleTargetInput = z.infer<typeof styleTargetSchema>;
+
+type StyleOperation = {
+  attr: WorkbookFormatAttribute;
+  value: string | number | null;
+  summary: string;
+};
 
 // New optimized schemas for Phase 1
 const errorDetailSchema = z.object({
@@ -454,6 +531,158 @@ function getActiveSheetSnapshot() {
   return { sheetId, sheet };
 }
 
+function formatRangeLabel(range: { start: { row: number; col: number }; end: { row: number; col: number } }) {
+  const startLabel = `${columnIndexToLetter(range.start.col)}${range.start.row + 1}`;
+  const endLabel = `${columnIndexToLetter(range.end.col)}${range.end.row + 1}`;
+  return startLabel === endLabel ? startLabel : `${startLabel}:${endLabel}`;
+}
+
+function isPresent<T>(value: T | null | undefined): value is T {
+  return value !== null && value !== undefined;
+}
+
+function normalizeHexColor(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("Color strings cannot be empty.");
+  }
+  const hex = trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
+  if (!(hex.length === 3 || hex.length === 6) || !/^[0-9a-fA-F]+$/.test(hex)) {
+    throw new Error(`Invalid color value "${value}". Use hex like '#FFAA00'.`);
+  }
+  const expanded = hex.length === 3 ? hex.split("").map((char) => char + char).join("") : hex;
+  return `#${expanded.toUpperCase()}`;
+}
+
+const horizontalAlignValueMap = {
+  left: "1",
+  center: "0",
+  right: "2",
+} as const;
+
+const verticalAlignValueMap = {
+  top: "1",
+  middle: "0",
+  bottom: "2",
+} as const;
+
+const textWrapValueMap = {
+  clip: "0",
+  overflow: "1",
+  wrap: "2",
+} as const;
+
+const textRotationValueMap = {
+  none: "0",
+  angleup: "1",
+  angledown: "2",
+  vertical: "3",
+  "rotation-up": "4",
+  "rotation-down": "5",
+} as const;
+
+function buildStyleOperations(style: StyleOptionsInput): StyleOperation[] {
+  const operations: StyleOperation[] = [];
+
+  if (isPresent(style.bold)) {
+    operations.push({
+      attr: "bl",
+      value: style.bold ? 1 : 0,
+      summary: `bold:${style.bold ? "on" : "off"}`,
+    });
+  }
+  if (isPresent(style.italic)) {
+    operations.push({
+      attr: "it",
+      value: style.italic ? 1 : 0,
+      summary: `italic:${style.italic ? "on" : "off"}`,
+    });
+  }
+  if (isPresent(style.underline)) {
+    operations.push({
+      attr: "un",
+      value: style.underline ? 1 : 0,
+      summary: `underline:${style.underline ? "on" : "off"}`,
+    });
+  }
+  if (isPresent(style.strikethrough)) {
+    operations.push({
+      attr: "cl",
+      value: style.strikethrough ? 1 : 0,
+      summary: `strikethrough:${style.strikethrough ? "on" : "off"}`,
+    });
+  }
+  if (isPresent(style.fontFamily)) {
+    const normalizedFamily = style.fontFamily.trim();
+    if (!normalizedFamily) {
+      throw new Error("Font family cannot be empty.");
+    }
+    operations.push({
+      attr: "ff",
+      value: normalizedFamily,
+      summary: `fontFamily:${normalizedFamily}`,
+    });
+  }
+  if (isPresent(style.fontSize)) {
+    const rounded = Math.round(style.fontSize);
+    const normalizedSize = Math.min(200, Math.max(6, rounded));
+    operations.push({
+      attr: "fs",
+      value: normalizedSize,
+      summary: `fontSize:${normalizedSize}`,
+    });
+  }
+  if (style.fontColor !== undefined) {
+    const normalized = normalizeHexColor(style.fontColor);
+    operations.push({
+      attr: "fc",
+      value: normalized,
+      summary: normalized ? `fontColor:${normalized}` : "fontColor:cleared",
+    });
+  }
+  if (style.backgroundColor !== undefined) {
+    const normalized = normalizeHexColor(style.backgroundColor);
+    operations.push({
+      attr: "bg",
+      value: normalized,
+      summary: normalized ? `backgroundColor:${normalized}` : "backgroundColor:cleared",
+    });
+  }
+  if (isPresent(style.horizontalAlign)) {
+    operations.push({
+      attr: "ht",
+      value: horizontalAlignValueMap[style.horizontalAlign],
+      summary: `horizontalAlign:${style.horizontalAlign}`,
+    });
+  }
+  if (isPresent(style.verticalAlign)) {
+    operations.push({
+      attr: "vt",
+      value: verticalAlignValueMap[style.verticalAlign],
+      summary: `verticalAlign:${style.verticalAlign}`,
+    });
+  }
+  if (isPresent(style.textWrap)) {
+    operations.push({
+      attr: "tb",
+      value: textWrapValueMap[style.textWrap],
+      summary: `textWrap:${style.textWrap}`,
+    });
+  }
+  if (isPresent(style.textRotation)) {
+    operations.push({
+      attr: "tr",
+      value: textRotationValueMap[style.textRotation],
+      summary: `textRotation:${style.textRotation}`,
+    });
+  }
+
+  return operations;
+}
+
 
 async function updateCells(args: {
   cells: CellUpdateRequest[];
@@ -594,6 +823,109 @@ async function updateCells(args: {
     };
   } catch (error) {
     console.error("Error in updateCells:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+    };
+  }
+}
+
+async function updateCellStyles(args: { targets: StyleTargetInput[] }) {
+  try {
+    const { targets } = args;
+    if (!Array.isArray(targets) || targets.length === 0) {
+      throw new Error("Provide at least one target range to style.");
+    }
+
+    const workbook = await ensureWorkbook();
+    const { sheetId, sheet } = getActiveSheetSnapshot();
+    const rowCount = getSheetRowCount(sheet);
+    const columnCount = getSheetColumnCount(sheet);
+
+    const applied: Array<{ range: string; styles: string[] }> = [];
+
+    targets.forEach((target, index) => {
+      let resolvedRange;
+      if (target.range) {
+        resolvedRange = resolveRange(target.range);
+      } else {
+        if (
+          target.startRow === undefined ||
+          !target.startColumn ||
+          target.endRow === undefined ||
+          !target.endColumn
+        ) {
+          throw new Error(
+            `Target at index ${index} must include start/end row + column when 'range' is omitted.`
+          );
+        }
+        resolvedRange = resolveRange(
+          target.startRow,
+          target.startColumn,
+          target.endRow,
+          target.endColumn
+        );
+      }
+
+      const rangeLabel = formatRangeLabel(resolvedRange);
+      if (resolvedRange.end.row >= rowCount) {
+        const rowsNeeded = resolvedRange.end.row - rowCount + 1;
+        throw new Error(
+          `Range ${rangeLabel} exceeds the sheet's ${rowCount} rows. Add at least ${rowsNeeded} more row(s) first.`
+        );
+      }
+      if (resolvedRange.end.col >= columnCount) {
+        const columnsNeeded = resolvedRange.end.col - columnCount + 1;
+        throw new Error(
+          `Range ${rangeLabel} exceeds the sheet's ${columnCount} columns. Add at least ${columnsNeeded} more column(s) first.`
+        );
+      }
+
+      if (resolvedRange.end.row >= MAX_SPREADSHEET_ROWS) {
+        throw new Error(
+          `Range ${rangeLabel} exceeds the maximum supported rows (${MAX_SPREADSHEET_ROWS}).`
+        );
+      }
+      if (resolvedRange.end.col >= MAX_SPREADSHEET_COLUMNS) {
+        throw new Error(
+          `Range ${rangeLabel} exceeds the maximum supported columns (${MAX_SPREADSHEET_COLUMNS}).`
+        );
+      }
+
+      const operations = buildStyleOperations(target.style);
+      if (operations.length === 0) {
+        throw new Error(`Target at index ${index} does not include any style changes.`);
+      }
+
+      const workbookRange = {
+        row: [resolvedRange.start.row, resolvedRange.end.row] as [number, number],
+        column: [resolvedRange.start.col, resolvedRange.end.col] as [number, number],
+      };
+
+      operations.forEach((operation) => {
+        workbook.setCellFormatByRange(operation.attr, operation.value, workbookRange, {
+          id: sheetId,
+        });
+      });
+
+      applied.push({
+        range: rangeLabel,
+        styles: operations.map((operation) => operation.summary),
+      });
+    });
+
+    const summaryRanges = applied.map((entry) => entry.range).join(", ");
+
+    return {
+      success: true,
+      message:
+        applied.length === 1
+          ? `Updated styles for ${summaryRanges}.`
+          : `Updated styles for ${applied.length} ranges: ${summaryRanges}.`,
+      applied,
+    };
+  } catch (error) {
+    console.error("Error in updateCellStyles:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error occurred",
@@ -1089,6 +1421,40 @@ export const updateCellsTool = {
     ),
 };
 
+export const updateCellStylesTool = {
+  name: "updateSpreadsheetCellStyles",
+  description:
+    "Apply formatting such as bold text, font colors, fills, alignment, wrapping, or rotation to one or more ranges.",
+  tool: updateCellStyles,
+  toolSchema: z
+    .function()
+    .args(
+      z.object({
+        targets: z
+          .array(styleTargetSchema)
+          .min(1, "Provide at least one range to style.")
+          .describe(
+            "Ranges to style. Each range can be specified via A1 notation or explicit start/end coordinates along with the style properties to apply."
+          ),
+      })
+    )
+    .returns(
+      z.object({
+        success: z.boolean(),
+        message: z.string().optional(),
+        error: z.string().optional(),
+        applied: z
+          .array(
+            z.object({
+              range: z.string(),
+              styles: z.array(z.string()),
+            })
+          )
+          .optional(),
+      })
+    ),
+};
+
 export const addColumnTool = {
   name: "addSpreadsheetColumn",
   description: "Append new columns to the active sheet.",
@@ -1382,6 +1748,7 @@ export const getSpreadsheetInfoTool = {
 
 export const spreadsheetTools = [
   updateCellsTool,
+  updateCellStylesTool,
   addColumnTool,
   removeColumnTool,
   addRowTool,
