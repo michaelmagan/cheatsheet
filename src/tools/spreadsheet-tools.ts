@@ -851,8 +851,10 @@ async function updateCellStyles(args: { targets: StyleTargetInput[] }) {
       } else {
         if (
           target.startRow === undefined ||
+          target.startRow === null ||
           !target.startColumn ||
           target.endRow === undefined ||
+          target.endRow === null ||
           !target.endColumn
         ) {
           throw new Error(

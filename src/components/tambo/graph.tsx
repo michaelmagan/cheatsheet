@@ -24,7 +24,7 @@ import { useTamboStreamStatus } from "@tambo-ai/react";
  */
 
 export const graphSchema = z.object({
-  type: z.enum(["bar", "line", "pie"]).describe("Type of graph to render"),
+  type: z.enum(["bar", "line", "pie", "stacked-bar", "stacked-area", "combo"]).describe("Type of graph to render"),
   spreadsheetData: z
     .object({
       tabId: z.string().describe("ID of the spreadsheet tab to read from"),
@@ -38,6 +38,8 @@ export const graphSchema = z.object({
               .string()
               .describe("A1 notation range for data (e.g., 'B2:B10'). Label will be read from the header cell (row 1) of this column"),
             color: z.string().optional().describe("Optional color for the dataset"),
+            chartType: z.enum(["bar", "line"]).optional().describe("For combo charts: specify 'bar' or 'line' for this dataset (default: bar)"),
+            yAxisId: z.enum(["left", "right"]).optional().describe("For multi-axis charts: specify 'left' or 'right' axis (default: left)"),
           }),
         )
         .describe("Array of datasets to display (max 10)"),
@@ -63,7 +65,7 @@ export interface GraphProps
   extends Omit<React.HTMLAttributes<HTMLDivElement>, "title" | "size">,
     Omit<VariantProps<typeof graphVariants>, "size" | "variant"> {
   /** Type of graph to render */
-  type: "bar" | "line" | "pie";
+  type: "bar" | "line" | "pie" | "stacked-bar" | "stacked-area" | "combo";
   /** Configuration for fetching data from spreadsheet */
   spreadsheetData: {
     tabId: string;
@@ -71,6 +73,8 @@ export interface GraphProps
     dataSets: Array<{
       range: string;
       color?: string;
+      chartType?: "bar" | "line";
+      yAxisId?: "left" | "right";
     }>;
   };
   /** Optional title for the chart */
@@ -439,7 +443,7 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
 
     // Chart rendering logic
     const renderChart = () => {
-      if (!["bar", "line", "pie"].includes(type)) {
+      if (!["bar", "line", "pie", "stacked-bar", "stacked-area", "combo"].includes(type)) {
         return (
           <div className="h-full flex items-center justify-center">
             <div className="text-muted-foreground text-center">
@@ -503,6 +507,60 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
             </RechartsCore.BarChart>
           );
 
+        case "stacked-bar":
+          return (
+            <RechartsCore.BarChart data={processedData}>
+              <RechartsCore.CartesianGrid
+                strokeDasharray="3 3"
+                vertical={false}
+                stroke="hsl(var(--border))"
+              />
+              <RechartsCore.XAxis
+                dataKey="name"
+                stroke="hsl(var(--muted-foreground))"
+                axisLine={false}
+                tickLine={false}
+              />
+              <RechartsCore.YAxis
+                stroke="hsl(var(--muted-foreground))"
+                axisLine={false}
+                tickLine={false}
+              />
+              <RechartsCore.Tooltip
+                cursor={{
+                  fill: "hsl(var(--muted-foreground))",
+                  fillOpacity: 0.1,
+                  radius: 4,
+                }}
+                contentStyle={{
+                  backgroundColor: "white",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "var(--radius)",
+                  color: "hsl(var(--foreground))",
+                }}
+              />
+              {showLegend && (
+                <RechartsCore.Legend
+                  wrapperStyle={{
+                    color: "hsl(var(--foreground))",
+                  }}
+                />
+              )}
+              {processedLabels.map((label, index) => (
+                <RechartsCore.Bar
+                  key={label}
+                  dataKey={label}
+                  stackId="stack"
+                  fill={
+                    dataSets[index].color ??
+                    defaultColors[index % defaultColors.length]
+                  }
+                  radius={index === processedLabels.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                />
+              ))}
+            </RechartsCore.BarChart>
+          );
+
         case "line":
           return (
             <RechartsCore.LineChart data={processedData}>
@@ -555,6 +613,65 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
                 />
               ))}
             </RechartsCore.LineChart>
+          );
+
+        case "stacked-area":
+          return (
+            <RechartsCore.AreaChart data={processedData}>
+              <RechartsCore.CartesianGrid
+                strokeDasharray="3 3"
+                vertical={false}
+                stroke="hsl(var(--border))"
+              />
+              <RechartsCore.XAxis
+                dataKey="name"
+                stroke="hsl(var(--muted-foreground))"
+                axisLine={false}
+                tickLine={false}
+              />
+              <RechartsCore.YAxis
+                stroke="hsl(var(--muted-foreground))"
+                axisLine={false}
+                tickLine={false}
+              />
+              <RechartsCore.Tooltip
+                cursor={{
+                  stroke: "hsl(var(--muted))",
+                  strokeWidth: 2,
+                  strokeOpacity: 0.3,
+                }}
+                contentStyle={{
+                  backgroundColor: "white",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "var(--radius)",
+                  color: "hsl(var(--foreground))",
+                }}
+              />
+              {showLegend && (
+                <RechartsCore.Legend
+                  wrapperStyle={{
+                    color: "hsl(var(--foreground))",
+                  }}
+                />
+              )}
+              {processedLabels.map((label, index) => (
+                <RechartsCore.Area
+                  key={label}
+                  type="monotone"
+                  dataKey={label}
+                  stackId="stack"
+                  stroke={
+                    dataSets[index].color ??
+                    defaultColors[index % defaultColors.length]
+                  }
+                  fill={
+                    dataSets[index].color ??
+                    defaultColors[index % defaultColors.length]
+                  }
+                  fillOpacity={0.6}
+                />
+              ))}
+            </RechartsCore.AreaChart>
           );
 
         case "pie": {
@@ -611,6 +728,93 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
                 />
               )}
             </RechartsCore.PieChart>
+          );
+        }
+
+        case "combo": {
+          // Combo chart with bars and lines on the same chart
+          // Supports multi-axis with left and right Y-axes
+          const hasRightAxis = dataSets.some(ds => ds.yAxisId === "right");
+
+          return (
+            <RechartsCore.ComposedChart data={processedData}>
+              <RechartsCore.CartesianGrid
+                strokeDasharray="3 3"
+                vertical={false}
+                stroke="hsl(var(--border))"
+              />
+              <RechartsCore.XAxis
+                dataKey="name"
+                stroke="hsl(var(--muted-foreground))"
+                axisLine={false}
+                tickLine={false}
+              />
+              <RechartsCore.YAxis
+                yAxisId="left"
+                stroke="hsl(var(--muted-foreground))"
+                axisLine={false}
+                tickLine={false}
+              />
+              {hasRightAxis && (
+                <RechartsCore.YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  stroke="hsl(var(--muted-foreground))"
+                  axisLine={false}
+                  tickLine={false}
+                />
+              )}
+              <RechartsCore.Tooltip
+                cursor={{
+                  fill: "hsl(var(--muted-foreground))",
+                  fillOpacity: 0.1,
+                  radius: 4,
+                }}
+                contentStyle={{
+                  backgroundColor: "white",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "var(--radius)",
+                  color: "hsl(var(--foreground))",
+                }}
+              />
+              {showLegend && (
+                <RechartsCore.Legend
+                  wrapperStyle={{
+                    color: "hsl(var(--foreground))",
+                  }}
+                />
+              )}
+              {processedLabels.map((label, index) => {
+                const dataset = dataSets[index];
+                const chartType = dataset?.chartType || "bar";
+                const yAxisId = dataset?.yAxisId || "left";
+                const color = dataset?.color ?? defaultColors[index % defaultColors.length];
+
+                if (chartType === "line") {
+                  return (
+                    <RechartsCore.Line
+                      key={label}
+                      type="monotone"
+                      dataKey={label}
+                      stroke={color}
+                      yAxisId={yAxisId}
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  );
+                } else {
+                  return (
+                    <RechartsCore.Bar
+                      key={label}
+                      dataKey={label}
+                      fill={color}
+                      yAxisId={yAxisId}
+                      radius={[4, 4, 0, 0]}
+                    />
+                  );
+                }
+              })}
+            </RechartsCore.ComposedChart>
           );
         }
       }
