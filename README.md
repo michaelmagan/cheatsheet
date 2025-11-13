@@ -174,6 +174,8 @@ Learn more about Tambo:
 
 Built with [Tambo AI](https://tambo.co) - A framework for building AI-powered UIs. Tambo is open source: [tambo-ai/tambo](https://github.com/tambo-ai/tambo).
 
+![Tambo Template Demo](https://raw.githubusercontent.com/tambo-ai/tambo/main/assets/template.gif)
+
 ## Contributing
 
 Contributions welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
