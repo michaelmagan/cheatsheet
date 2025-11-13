@@ -10,8 +10,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
-    "check-types": "tsc",
+    "lint": "eslint . && tsc --noEmit",
+    "check-types": "tsc --noEmit",
+    "test": "npm run lint && npm run check-types",
     "init": "npx tambo init"
   },
   "dependencies": {
