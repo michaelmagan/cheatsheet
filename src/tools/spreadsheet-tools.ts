@@ -68,38 +68,30 @@ const hexColorPattern = /^#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 const styleOptionsSchema = z
   .object({
-    bold: z.boolean().nullish(),
-    italic: z.boolean().nullish(),
-    underline: z.boolean().nullish(),
-    strikethrough: z.boolean().nullish(),
-    fontFamily: z.string().min(1).max(100).nullish(),
-    fontSize: z.number().int().min(6).max(200).nullish(),
+    bold: z.boolean().optional(),
+    italic: z.boolean().optional(),
+    underline: z.boolean().optional(),
+    strikethrough: z.boolean().optional(),
+    fontFamily: z.string().min(1).max(100).optional(),
+    fontSize: z.number().int().min(6).max(200).optional(),
     fontColor: z
-      .union([
-        z
-          .string()
-          .min(1)
-          .regex(hexColorPattern, "Colors must be hex strings like '#FFAA00'")
-          .describe("Hex color (supports #RGB or #RRGGBB)"),
-        z.literal(null),
-      ])
+      .string()
+      .min(1)
+      .regex(hexColorPattern, "Colors must be hex strings like '#FFAA00'")
+      .describe("Hex color (supports #RGB or #RRGGBB)")
       .optional(),
     backgroundColor: z
-      .union([
-        z
-          .string()
-          .min(1)
-          .regex(hexColorPattern, "Colors must be hex strings like '#FFAA00'")
-          .describe("Hex color (supports #RGB or #RRGGBB)"),
-        z.literal(null),
-      ])
+      .string()
+      .min(1)
+      .regex(hexColorPattern, "Colors must be hex strings like '#FFAA00'")
+      .describe("Hex color (supports #RGB or #RRGGBB)")
       .optional(),
-    horizontalAlign: z.enum(["left", "center", "right"]).nullish(),
-    verticalAlign: z.enum(["top", "middle", "bottom"]).nullish(),
-    textWrap: z.enum(["clip", "overflow", "wrap"]).nullish(),
+    horizontalAlign: z.enum(["left", "center", "right"]).optional(),
+    verticalAlign: z.enum(["top", "middle", "bottom"]).optional(),
+    textWrap: z.enum(["clip", "overflow", "wrap"]).optional(),
     textRotation: z
       .enum(["none", "angleup", "angledown", "vertical", "rotation-up", "rotation-down"])
-      .nullish(),
+      .optional(),
   })
   .refine(
     (style) => Object.values(style).some((value) => value !== undefined),
@@ -112,22 +104,19 @@ const styleTargetSchema = z
       .string()
       .min(1)
       .optional()
-      .nullable()
       .describe("A1-style range (e.g., 'B2:D5'). Required if coordinates are not provided."),
-    startRow: z.union([z.string(), z.number()]).nullish(),
-    startColumn: z.string().min(1).nullish(),
-    endRow: z.union([z.string(), z.number()]).nullish(),
-    endColumn: z.string().min(1).nullish(),
+    startRow: z.union([z.string(), z.number()]).optional(),
+    startColumn: z.string().min(1).optional(),
+    endRow: z.union([z.string(), z.number()]).optional(),
+    endColumn: z.string().min(1).optional(),
     style: styleOptionsSchema,
   })
   .refine(
     (target) =>
       (typeof target.range === "string" && target.range.trim().length > 0) ||
       (target.startRow !== undefined &&
-        target.startRow !== null &&
         !!target.startColumn &&
         target.endRow !== undefined &&
-        target.endRow !== null &&
         !!target.endColumn),
     {
       message:
@@ -537,14 +526,7 @@ function formatRangeLabel(range: { start: { row: number; col: number }; end: { r
   return startLabel === endLabel ? startLabel : `${startLabel}:${endLabel}`;
 }
 
-function isPresent<T>(value: T | null | undefined): value is T {
-  return value !== null && value !== undefined;
-}
-
-function normalizeHexColor(value: string | null): string | null {
-  if (value === null) {
-    return null;
-  }
+function normalizeHexColor(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) {
     throw new Error("Color strings cannot be empty.");
@@ -587,35 +569,35 @@ const textRotationValueMap = {
 function buildStyleOperations(style: StyleOptionsInput): StyleOperation[] {
   const operations: StyleOperation[] = [];
 
-  if (isPresent(style.bold)) {
+  if (style.bold !== undefined) {
     operations.push({
       attr: "bl",
       value: style.bold ? 1 : 0,
       summary: `bold:${style.bold ? "on" : "off"}`,
     });
   }
-  if (isPresent(style.italic)) {
+  if (style.italic !== undefined) {
     operations.push({
       attr: "it",
       value: style.italic ? 1 : 0,
       summary: `italic:${style.italic ? "on" : "off"}`,
     });
   }
-  if (isPresent(style.underline)) {
+  if (style.underline !== undefined) {
     operations.push({
       attr: "un",
       value: style.underline ? 1 : 0,
       summary: `underline:${style.underline ? "on" : "off"}`,
     });
   }
-  if (isPresent(style.strikethrough)) {
+  if (style.strikethrough !== undefined) {
     operations.push({
       attr: "cl",
       value: style.strikethrough ? 1 : 0,
       summary: `strikethrough:${style.strikethrough ? "on" : "off"}`,
     });
   }
-  if (isPresent(style.fontFamily)) {
+  if (style.fontFamily !== undefined) {
     const normalizedFamily = style.fontFamily.trim();
     if (!normalizedFamily) {
       throw new Error("Font family cannot be empty.");
@@ -626,7 +608,7 @@ function buildStyleOperations(style: StyleOptionsInput): StyleOperation[] {
       summary: `fontFamily:${normalizedFamily}`,
     });
   }
-  if (isPresent(style.fontSize)) {
+  if (style.fontSize !== undefined) {
     const rounded = Math.round(style.fontSize);
     const normalizedSize = Math.min(200, Math.max(6, rounded));
     operations.push({
@@ -640,7 +622,7 @@ function buildStyleOperations(style: StyleOptionsInput): StyleOperation[] {
     operations.push({
       attr: "fc",
       value: normalized,
-      summary: normalized ? `fontColor:${normalized}` : "fontColor:cleared",
+      summary: `fontColor:${normalized}`,
     });
   }
   if (style.backgroundColor !== undefined) {
@@ -648,31 +630,31 @@ function buildStyleOperations(style: StyleOptionsInput): StyleOperation[] {
     operations.push({
       attr: "bg",
       value: normalized,
-      summary: normalized ? `backgroundColor:${normalized}` : "backgroundColor:cleared",
+      summary: `backgroundColor:${normalized}`,
     });
   }
-  if (isPresent(style.horizontalAlign)) {
+  if (style.horizontalAlign !== undefined) {
     operations.push({
       attr: "ht",
       value: horizontalAlignValueMap[style.horizontalAlign],
       summary: `horizontalAlign:${style.horizontalAlign}`,
     });
   }
-  if (isPresent(style.verticalAlign)) {
+  if (style.verticalAlign !== undefined) {
     operations.push({
       attr: "vt",
       value: verticalAlignValueMap[style.verticalAlign],
       summary: `verticalAlign:${style.verticalAlign}`,
     });
   }
-  if (isPresent(style.textWrap)) {
+  if (style.textWrap !== undefined) {
     operations.push({
       attr: "tb",
       value: textWrapValueMap[style.textWrap],
       summary: `textWrap:${style.textWrap}`,
     });
   }
-  if (isPresent(style.textRotation)) {
+  if (style.textRotation !== undefined) {
     operations.push({
       attr: "tr",
       value: textRotationValueMap[style.textRotation],
