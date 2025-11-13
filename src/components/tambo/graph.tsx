@@ -456,7 +456,7 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
       switch (type) {
         case "bar":
           return (
-            <RechartsCore.BarChart data={processedData}>
+            <RechartsCore.BarChart data={processedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
               <RechartsCore.CartesianGrid
                 strokeDasharray="3 3"
                 vertical={false}
@@ -509,7 +509,7 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
 
         case "stacked-bar":
           return (
-            <RechartsCore.BarChart data={processedData}>
+            <RechartsCore.BarChart data={processedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
               <RechartsCore.CartesianGrid
                 strokeDasharray="3 3"
                 vertical={false}
@@ -563,7 +563,7 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
 
         case "line":
           return (
-            <RechartsCore.LineChart data={processedData}>
+            <RechartsCore.LineChart data={processedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
               <RechartsCore.CartesianGrid
                 strokeDasharray="3 3"
                 vertical={false}
@@ -617,7 +617,7 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
 
         case "stacked-area":
           return (
-            <RechartsCore.AreaChart data={processedData}>
+            <RechartsCore.AreaChart data={processedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
               <RechartsCore.CartesianGrid
                 strokeDasharray="3 3"
                 vertical={false}
@@ -737,7 +737,7 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
           const hasRightAxis = dataSets.some(ds => ds.yAxisId === "right");
 
           return (
-            <RechartsCore.ComposedChart data={processedData}>
+            <RechartsCore.ComposedChart data={processedData} margin={{ top: 5, right: hasRightAxis ? 20 : 20, left: 0, bottom: 5 }}>
               <RechartsCore.CartesianGrid
                 strokeDasharray="3 3"
                 vertical={false}
