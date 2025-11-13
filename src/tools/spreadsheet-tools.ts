@@ -106,34 +106,13 @@ const styleOptionsSchema = z
     { message: "Provide at least one style property to update." }
   );
 
-const styleTargetSchema = z
-  .object({
-    range: z
-      .string()
-      .min(1)
-      .optional()
-      .nullable()
-      .describe("A1-style range (e.g., 'B2:D5'). Required if coordinates are not provided."),
-    startRow: z.union([z.string(), z.number()]).nullish(),
-    startColumn: z.string().min(1).nullish(),
-    endRow: z.union([z.string(), z.number()]).nullish(),
-    endColumn: z.string().min(1).nullish(),
-    style: styleOptionsSchema,
-  })
-  .refine(
-    (target) =>
-      (typeof target.range === "string" && target.range.trim().length > 0) ||
-      (target.startRow !== undefined &&
-        target.startRow !== null &&
-        !!target.startColumn &&
-        target.endRow !== undefined &&
-        target.endRow !== null &&
-        !!target.endColumn),
-    {
-      message:
-        "Targets must specify either a 'range' or full start/end row+column coordinates.",
-    }
-  );
+const styleTargetSchema = z.object({
+  range: z
+    .string()
+    .min(1)
+    .describe("A1-style range (e.g., 'B2:D5' or 'A1')"),
+  style: styleOptionsSchema,
+});
 
 type StyleOptionsInput = z.infer<typeof styleOptionsSchema>;
 type StyleTargetInput = z.infer<typeof styleTargetSchema>;
@@ -475,50 +454,8 @@ async function waitForCellEvaluation(
   return evaluation;
 }
 
-function resolveAddress(input: string | number, column?: string) {
-  if (typeof input === "string") {
-    const trimmed = input.trim();
-    if (column && isNumericString(trimmed)) {
-      return resolveAddress(Number.parseInt(trimmed, 10), column);
-    }
-    const parsed = parseCellReference(trimmed);
-    return { row: parsed.row, column: parsed.col };
-  }
-  if (!column) {
-    throw new Error("Column identifier is required when using numeric row references.");
-  }
-  const numericRow = Number(input);
-  if (!Number.isFinite(numericRow) || numericRow <= 0 || !Number.isInteger(numericRow)) {
-    throw new Error(`Row reference must be a positive integer. Received: ${input}`);
-  }
-  const colIndex = letterToColumnIndex(column.toUpperCase());
-  return { row: numericRow - 1, column: colIndex };
-}
-
-function resolveRange(
-  start: string | number,
-  startColumn?: string,
-  endRow?: string | number,
-  endColumn?: string
-) {
-  if (typeof start === "string" && !startColumn) {
-    return parseRangeReference(start);
-  }
-  if (
-    startColumn === undefined ||
-    endRow === undefined ||
-    endColumn === undefined
-  ) {
-    throw new Error(
-      "Row/column notation requires start row, start column, end row, and end column."
-    );
-  }
-  const startPoint = resolveAddress(start, startColumn);
-  const endPoint = resolveAddress(endRow, endColumn);
-  return {
-    start: { row: Math.min(startPoint.row, endPoint.row), col: Math.min(startPoint.column, endPoint.column) },
-    end: { row: Math.max(startPoint.row, endPoint.row), col: Math.max(startPoint.column, endPoint.column) },
-  };
+function resolveRange(range: string) {
+  return parseRangeReference(range);
 }
 
 function getActiveSheetSnapshot() {
@@ -699,20 +636,20 @@ async function updateCells(args: {
 
     const resolvedCells = cells.map((cell, index) => {
       try {
-        const { row, column } = resolveAddress(cell.address);
+        const parsed = parseCellReference(cell.address);
 
-        if (row >= MAX_SPREADSHEET_ROWS) {
+        if (parsed.row >= MAX_SPREADSHEET_ROWS) {
           throw new Error(
-            `Cell ${cell.address} row ${row + 1} exceeds max ${MAX_SPREADSHEET_ROWS}`
+            `Cell ${cell.address} row ${parsed.row + 1} exceeds max ${MAX_SPREADSHEET_ROWS}`
           );
         }
-        if (column >= MAX_SPREADSHEET_COLUMNS) {
+        if (parsed.col >= MAX_SPREADSHEET_COLUMNS) {
           throw new Error(
             `Cell ${cell.address} column exceeds max ${MAX_SPREADSHEET_COLUMNS}`
           );
         }
 
-        return { address: cell.address, row, column, value: cell.value };
+        return { address: cell.address, row: parsed.row, column: parsed.col, value: cell.value };
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown error occurred";
@@ -845,30 +782,7 @@ async function updateCellStyles(args: { targets: StyleTargetInput[] }) {
     const applied: Array<{ range: string; styles: string[] }> = [];
 
     targets.forEach((target, index) => {
-      let resolvedRange;
-      if (target.range) {
-        resolvedRange = resolveRange(target.range);
-      } else {
-        if (
-          target.startRow === undefined ||
-          target.startRow === null ||
-          !target.startColumn ||
-          target.endRow === undefined ||
-          target.endRow === null ||
-          !target.endColumn
-        ) {
-          throw new Error(
-            `Target at index ${index} must include start/end row + column when 'range' is omitted.`
-          );
-        }
-        resolvedRange = resolveRange(
-          target.startRow,
-          target.startColumn,
-          target.endRow,
-          target.endColumn
-        );
-      }
-
+      const resolvedRange = resolveRange(target.range);
       const rangeLabel = formatRangeLabel(resolvedRange);
       if (resolvedRange.end.row >= rowCount) {
         const rowsNeeded = resolvedRange.end.row - rowCount + 1;
@@ -1043,17 +957,17 @@ async function removeRow(rowId: string | number) {
   }
 }
 
-async function readCell(rowOrAddress: string | number, columnId?: string) {
+async function readCell(address: string) {
   try {
     const { sheet } = getActiveSheetSnapshot();
-    const address = resolveAddress(rowOrAddress, columnId);
+    const cellAddress = parseCellReference(address);
     const lookup = buildCelldataLookup(sheet);
-    const cell = getCellFromLookup(lookup, address.row, address.column);
+    const cell = getCellFromLookup(lookup, cellAddress.row, cellAddress.col);
     return {
       success: true,
       cell,
       message: cell
-        ? `Read cell ${columnIndexToLetter(address.column)}${address.row + 1}.`
+        ? `Read cell ${address}.`
         : "Cell is empty.",
     };
   } catch (error) {
@@ -1080,19 +994,11 @@ function resolveCellDisplay(cell: Cell | null): string | null {
 }
 
 async function readRange(
-  startRowOrRange: string | number,
-  startColumn?: string,
-  endRow?: string | number,
-  endColumn?: string,
+  range: string,
   mode?: "summary" | "values" | "full"
 ) {
   try {
-    const resolvedRange = resolveRange(
-      startRowOrRange,
-      startColumn,
-      endRow,
-      endColumn
-    );
+    const resolvedRange = resolveRange(range);
     const { sheet } = getActiveSheetSnapshot();
     const lookup = buildCelldataLookup(sheet);
 
@@ -1186,21 +1092,11 @@ async function readRange(
   }
 }
 
-async function clearRange(
-  startRowOrRange: string | number,
-  startColumn?: string,
-  endRow?: string | number,
-  endColumn?: string
-) {
+async function clearRange(range: string) {
   try {
     const workbook = await ensureWorkbook();
     const { sheetId } = getActiveSheetSnapshot();
-    const resolvedRange = resolveRange(
-      startRowOrRange,
-      startColumn,
-      endRow,
-      endColumn
-    );
+    const resolvedRange = resolveRange(range);
 
     for (let row = resolvedRange.start.row; row <= resolvedRange.end.row; row++) {
       for (let col = resolvedRange.start.col; col <= resolvedRange.end.col; col++) {
@@ -1542,13 +1438,12 @@ export const removeRowTool = {
 export const readCellTool = {
   name: "readSpreadsheetCell",
   description:
-    "Read a single cell from the active sheet. Supports A1 notation (e.g., 'B5') or row/column arguments.",
+    "Read a single cell from the active sheet using A1 notation (e.g., 'B5').",
   tool: readCell,
   toolSchema: z
     .function()
     .args(
-      z.union([z.string(), z.number()]).describe("Row index or A1 address"),
-      z.string().optional().describe("Column letter when using row/column notation")
+      z.string().describe("Cell address in A1 notation (e.g., 'B5')")
     )
     .returns(
       z.object({
@@ -1563,15 +1458,12 @@ export const readCellTool = {
 export const readRangeTool = {
   name: "readSpreadsheetRange",
   description:
-    "Read a rectangular range of cells with flexible output modes. Supports A1 notation (e.g., 'A1:C5') or row/column boundaries.",
+    "Read a rectangular range of cells with flexible output modes using A1 notation (e.g., 'A1:C5').",
   tool: readRange,
   toolSchema: z
     .function()
     .args(
-      z.union([z.string(), z.number()]).describe("Range (A1) or start row"),
-      z.string().optional().describe("Start column"),
-      z.union([z.string(), z.number()]).optional().describe("End row"),
-      z.string().optional().describe("End column"),
+      z.string().describe("Range in A1 notation (e.g., 'A1:C5')"),
       z.enum(["summary", "values", "full"]).optional().describe("Output mode (auto-selected if not specified)")
     )
     .returns(
@@ -1612,15 +1504,12 @@ export const readRangeTool = {
 export const clearRangeTool = {
   name: "clearSpreadsheetRange",
   description:
-    "Clear a range of cells by removing their values. Supports A1 notation or row/column bounds.",
+    "Clear a range of cells by removing their values using A1 notation (e.g., 'A1:C5').",
   tool: clearRange,
   toolSchema: z
     .function()
     .args(
-      z.union([z.string(), z.number()]).describe("Range (A1) or start row"),
-      z.string().optional().describe("Start column"),
-      z.union([z.string(), z.number()]).optional().describe("End row"),
-      z.string().optional().describe("End column")
+      z.string().describe("Range in A1 notation (e.g., 'A1:C5')")
     )
     .returns(
       z.object({
