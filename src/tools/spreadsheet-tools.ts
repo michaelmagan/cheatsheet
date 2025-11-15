@@ -506,6 +506,16 @@ const textRotationValueMap = {
   "rotation-down": "5",
 } as const;
 
+function filterNullFields(obj: Record<string, unknown>): Record<string, unknown> {
+  const filtered: Record<string, unknown> = {};
+  for (const key in obj) {
+    if (obj[key] !== null && obj[key] !== undefined) {
+      filtered[key] = obj[key];
+    }
+  }
+  return filtered;
+}
+
 function buildStyleOperations(style: StyleOptionsInput): StyleOperation[] {
   const operations: StyleOperation[] = [];
 
@@ -713,7 +723,9 @@ async function updateCells(args: {
         success: true,
         message: `Updated ${summary.total} cell(s): ${addressList}`,
         summary,
-        ...(returnDetails && { evaluations }),
+        ...(returnDetails && {
+          evaluations: evaluations.map(e => filterNullFields(e as unknown as Record<string, unknown>))
+        }),
       };
     }
 
@@ -741,7 +753,9 @@ async function updateCells(args: {
           note: "Call getSpreadsheetErrors with these addresses for details",
         },
       }),
-      ...(returnDetails && { evaluations }),
+      ...(returnDetails && {
+        evaluations: evaluations.map(e => filterNullFields(e as unknown as Record<string, unknown>))
+      }),
     };
   } catch (error) {
     console.error("Error in updateCells:", error);
@@ -947,13 +961,35 @@ async function readCell(address: string) {
     const { sheet } = getActiveSheetSnapshot();
     const cellAddress = parseCellReference(address);
     const lookup = buildCelldataLookup(sheet);
-    const cell = getCellFromLookup(lookup, cellAddress.row, cellAddress.col);
+    const cellObj = getCellFromLookup(lookup, cellAddress.row, cellAddress.col);
+
+    if (!cellObj) {
+      return {
+        success: true,
+        cell: null,
+        message: "Cell is empty.",
+      };
+    }
+
+    // Build simplified cell data with only non-null fields
+    const cellData: {
+      value: unknown;
+      displayValue: string | null;
+      formula?: string;
+    } = {
+      value: cellObj.v,
+      displayValue: resolveCellDisplay(cellObj),
+    };
+
+    // Only include formula if it exists
+    if (typeof cellObj.f === "string" && cellObj.f.trim().length > 0) {
+      cellData.formula = cellObj.f;
+    }
+
     return {
       success: true,
-      cell,
-      message: cell
-        ? `Read cell ${address}.`
-        : "Cell is empty.",
+      cell: cellData,
+      message: `Read cell ${address}.`,
     };
   } catch (error) {
     console.error("Error in readCell:", error);
@@ -1051,22 +1087,53 @@ async function readRange(
       };
     }
 
-    // Full mode: existing behavior (all cell objects)
-    const data: Array<Array<unknown>> = [];
+    // Full mode: sparse A1 notation format with non-null cells only
+    const data: Array<{
+      cell: string;
+      value: unknown;
+      displayValue: string;
+      formula?: string;
+    }> = [];
 
     for (let row = resolvedRange.start.row; row <= resolvedRange.end.row; row++) {
-      const rowData: unknown[] = [];
       for (let col = resolvedRange.start.col; col <= resolvedRange.end.col; col++) {
-        rowData.push(getCellFromLookup(lookup, row, col));
+        const cellObj = getCellFromLookup(lookup, row, col);
+
+        // Skip null/empty cells
+        if (!cellObj) continue;
+
+        const cellAddress = `${columnIndexToLetter(col)}${row + 1}`;
+        const value = cellObj.v;
+        const displayValue = resolveCellDisplay(cellObj) ?? "";
+        const formula = typeof cellObj.f === "string" && cellObj.f.trim().length > 0
+          ? cellObj.f
+          : undefined;
+
+        const cellData: {
+          cell: string;
+          value: unknown;
+          displayValue: string;
+          formula?: string;
+        } = {
+          cell: cellAddress,
+          value,
+          displayValue,
+        };
+
+        // Only include formula if it exists
+        if (formula) {
+          cellData.formula = formula;
+        }
+
+        data.push(cellData);
       }
-      data.push(rowData);
     }
 
     return {
       success: true,
       mode: "full" as const,
       data,
-      message: `Read range ${startLabel}:${endLabel}.`,
+      message: `Read ${data.length} non-empty cells from ${startLabel}:${endLabel}. Cells not listed are null/empty.`,
     };
   } catch (error) {
     console.error("Error in readRange:", error);
@@ -1431,12 +1498,21 @@ export const readCellTool = {
       z.string().describe("Cell address in A1 notation (e.g., 'B5')")
     )
     .returns(
-      z.object({
-        success: z.boolean(),
-        cell: z.any().optional(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-      })
+      z.union([
+        z.object({
+          success: z.literal(true),
+          cell: z.object({
+            value: z.any().describe("Raw cell value"),
+            displayValue: z.string().nullable().describe("Formatted display value"),
+            formula: z.string().optional().describe("Formula if present"),
+          }).nullable(),
+          message: z.string(),
+        }),
+        z.object({
+          success: z.literal(false),
+          error: z.string(),
+        }),
+      ])
     ),
 };
 
@@ -1475,7 +1551,12 @@ export const readRangeTool = {
         z.object({
           success: z.literal(true),
           mode: z.literal("full"),
-          data: z.array(z.array(z.any())).describe("2D array of complete cell objects"),
+          data: z.array(z.object({
+            cell: z.string().describe("Cell address in A1 notation"),
+            value: z.any().describe("Raw cell value"),
+            displayValue: z.string().describe("Formatted display value"),
+            formula: z.string().optional().describe("Formula if present"),
+          })).describe("Array of non-empty cells with A1 addresses"),
           message: z.string(),
         }),
         z.object({
