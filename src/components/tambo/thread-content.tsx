@@ -142,7 +142,10 @@ const ThreadContentMessages = React.forwardRef<
       {filteredMessages.map((message, index) => {
         return (
           <div
-            key={message.id}
+            key={
+              message.id ??
+              `${message.role}-${message.createdAt ?? `${index}`}-${message.content?.toString().substring(0, 10)}`
+            }
             data-slot="thread-content-item"
           >
             <Message
@@ -166,8 +169,8 @@ const ThreadContentMessages = React.forwardRef<
                 <MessageContent
                   className={
                     message.role === "assistant"
-                      ? "text-primary font-sans"
-                      : "text-primary bg-container hover:bg-backdrop font-sans"
+                      ? "text-foreground font-sans"
+                      : "text-foreground bg-container hover:bg-backdrop font-sans"
                   }
                 />
                 <ToolcallInfo />
