@@ -319,9 +319,9 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
     // Show loading during component streaming if minimum data hasn't arrived yet
     if (!hasMinimumData && isStreaming) {
       return (
-        <div className="flex h-full items-center justify-center rounded-lg border border-gray-200 bg-gray-50 p-6">
+        <div className="flex h-full items-center justify-center rounded-lg border border-border bg-background p-6">
           <div className="text-center">
-            <div className="mb-2 text-sm text-gray-600">
+            <div className="mb-2 text-sm text-muted-foreground">
               Configuring chart...
             </div>
           </div>
@@ -332,9 +332,9 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
     // If minimum data is still missing after generation completes, show awaiting state
     if (!hasMinimumData) {
       return (
-        <div className="flex h-full items-center justify-center rounded-lg border border-gray-200 bg-gray-50 p-6">
+        <div className="flex h-full items-center justify-center rounded-lg border border-border bg-background p-6">
           <div className="text-center">
-            <div className="mb-2 text-sm text-gray-600">
+            <div className="mb-2 text-sm text-muted-foreground">
               Awaiting chart data...
             </div>
           </div>
