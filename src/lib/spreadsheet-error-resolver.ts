@@ -11,13 +11,40 @@ export const FORMULA_ERROR_RESOLUTION =
   "or call getSpreadsheetFormulaHelp() with the specific function name for usage details.";
 
 /**
+ * Normalizes an error code to the standard Excel format with # prefix and ! suffix.
+ *
+ * @param errorCode - The error code (e.g., "DIV/0", "#DIV/0!", "NAME?")
+ * @returns Normalized error code (e.g., "#DIV/0!")
+ */
+export function normalizeErrorCode(errorCode: string): string {
+  let normalized = errorCode.trim().toUpperCase();
+
+  // Add # prefix if missing
+  if (!normalized.startsWith("#")) {
+    normalized = `#${normalized}`;
+  }
+
+  // Add ! suffix if missing (except for #NAME? and #N/A which use ? instead)
+  if (!normalized.endsWith("!") && !normalized.endsWith("?") && normalized !== "#N/A") {
+    // Special cases that end with ?
+    if (normalized === "#NAME") {
+      normalized = "#NAME?";
+    } else {
+      normalized = `${normalized}!`;
+    }
+  }
+
+  return normalized;
+}
+
+/**
  * Maps Excel error codes to error categories.
  *
- * @param errorCode - The Excel error code (e.g., "#NAME?", "#DIV/0!", "#REF!")
+ * @param errorCode - The Excel error code (e.g., "#NAME?", "#DIV/0!", "#REF!", or "DIV/0")
  * @returns The error category as a string
  */
 export function determineErrorType(errorCode: string): string {
-  const normalizedError = errorCode.trim().toUpperCase();
+  const normalizedError = normalizeErrorCode(errorCode);
 
   const errorPatterns: Record<string, string> = {
     "#NAME?": "formula_error",
@@ -43,11 +70,11 @@ export function determineErrorType(errorCode: string): string {
 /**
  * Returns error-specific resolution guidance with references to Tambo tools.
  *
- * @param errorCode - The Excel error code (e.g., "#NAME?", "#DIV/0!", "#REF!")
+ * @param errorCode - The Excel error code (e.g., "#NAME?", "#DIV/0!", "#REF!", or "DIV/0")
  * @returns Actionable resolution message
  */
 export function getErrorSpecificResolution(errorCode: string): string {
-  const normalizedError = errorCode.trim().toUpperCase();
+  const normalizedError = normalizeErrorCode(errorCode);
 
   const resolutions: Record<string, string> = {
     "#NAME?":
