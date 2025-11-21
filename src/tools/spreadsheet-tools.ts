@@ -31,7 +31,31 @@ import {
   determineErrorType,
   getErrorSpecificResolution,
 } from "@/lib/spreadsheet-error-resolver";
-import type { Cell, Sheet } from "@fortune-sheet/core";
+
+/**
+ * Normalizes an error code to the standard Excel format with # prefix and ! or ? suffix.
+ */
+function normalizeErrorCode(errorCode: string): string {
+  let normalized = errorCode.trim().toUpperCase();
+
+  // Add # prefix if missing
+  if (!normalized.startsWith("#")) {
+    normalized = `#${normalized}`;
+  }
+
+  // Add ! suffix if missing (except for #NAME? and #N/A which use ? instead)
+  if (!normalized.endsWith("!") && !normalized.endsWith("?") && normalized !== "#N/A") {
+    // Special cases that end with ?
+    if (normalized === "#NAME") {
+      normalized = "#NAME?";
+    } else {
+      normalized = `${normalized}!`;
+    }
+  }
+
+  return normalized;
+}
+import type { Cell } from "@fortune-sheet/core";
 import type { WorkbookInstance } from "@fortune-sheet/react";
 import type {
   CellEvaluation,
@@ -45,8 +69,10 @@ import { z } from "zod";
 type CellValue = CellValueInput;
 type WorkbookFormatAttribute = Parameters<WorkbookInstance["setCellFormatByRange"]>[0];
 
-const EXCEL_ERROR_PREFIX =
-  /^#(NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|GETTING_DATA|SPILL!|CALC!|FIELD!|BLOCKED!|UNKNOWN!|ERROR!)/i;
+// FortuneSheet can return errors with or without the # prefix
+// cell.v typically has "#DIV/0!" while cell.m might have "DIV/0" or "DIV/0!"
+const EXCEL_ERROR_PATTERN =
+  /^#?(NULL!?|DIV\/0!?|VALUE!?|REF!?|NAME\??|NUM!?|N\/A|GETTING_DATA|SPILL!?|CALC!?|FIELD!?|BLOCKED!?|UNKNOWN!?|ERROR!?)$/i;
 
 const cellEvaluationSchema = z.object({
   address: z.string(),
@@ -254,32 +280,69 @@ function detectErrorFromCell(
   rawValue: unknown,
   displayValue: string | null
 ): string | null {
+  console.log(`[ERROR DETECT] Starting detection:`, {
+    hasCellObject: !!cell,
+    cellType: cell?.ct?.t,
+    cellM: cell?.m,
+    cellV: cell?.v,
+    rawValue,
+    displayValue,
+    rawValueType: typeof rawValue,
+    displayValueType: typeof displayValue
+  });
+
+  // Check displayValue first (most reliable for computed errors)
+  if (typeof displayValue === "string") {
+    const trimmed = displayValue.trim();
+    const matches = EXCEL_ERROR_PATTERN.test(trimmed);
+    console.log(`[ERROR DETECT] Checking displayValue "${trimmed}":`, {
+      matches,
+      pattern: EXCEL_ERROR_PATTERN.toString()
+    });
+    if (matches) {
+      console.log(`[ERROR DETECT] ✓ Error found in displayValue: ${displayValue}`);
+      return displayValue;
+    }
+  }
+
+  // Check rawValue
+  if (typeof rawValue === "string") {
+    const trimmed = rawValue.trim();
+    const matches = EXCEL_ERROR_PATTERN.test(trimmed);
+    console.log(`[ERROR DETECT] Checking rawValue "${trimmed}":`, { matches });
+    if (matches) {
+      console.log(`[ERROR DETECT] ✓ Error found in rawValue: ${rawValue}`);
+      return rawValue;
+    }
+  }
+
   // Check if the cell has error type marker
   if (cell?.ct?.t === "e") {
     const display = cell.m ?? cell.v ?? rawValue;
     const displayStr = typeof display === "string" ? display : toDisplayString(display);
 
+    console.log(`[ERROR DETECT] Cell has ct.t === "e":`, {
+      cellType: cell.ct.t,
+      cellM: cell.m,
+      cellV: cell.v,
+      display,
+      displayStr,
+      matchesErrorPattern: displayStr ? EXCEL_ERROR_PATTERN.test(displayStr.trim()) : false
+    });
+
     // Verify it's actually an error pattern and not just a zero or other valid value
-    if (displayStr && EXCEL_ERROR_PREFIX.test(displayStr.trim())) {
+    if (displayStr && EXCEL_ERROR_PATTERN.test(displayStr.trim())) {
+      console.log(`[ERROR DETECT] ✓ Returning error from ct.t check: ${displayStr}`);
       return displayStr;
     }
 
     // If cell type is "e" but value doesn't match error pattern, it might be misclassified
     // Don't treat it as an error (handles case where zero is marked as error type)
+    console.log(`[ERROR DETECT] Cell type is "e" but no error pattern match`);
     return null;
   }
 
-  if (typeof rawValue === "string" && EXCEL_ERROR_PREFIX.test(rawValue.trim())) {
-    return rawValue;
-  }
-
-  if (
-    typeof displayValue === "string" &&
-    EXCEL_ERROR_PREFIX.test(displayValue.trim())
-  ) {
-    return displayValue;
-  }
-
+  console.log(`[ERROR DETECT] ✗ No error detected`);
   return null;
 }
 
@@ -291,44 +354,68 @@ function buildCellEvaluation(
   sheetLookup?: Map<string, Cell | null>
 ): CellEvaluation {
   const label = `${columnIndexToLetter(column)}${row + 1}`;
-  const rawValue = workbook.getCellValue(row, column, { id: sheetId });
-  const displayValueRaw = workbook.getCellValue(row, column, {
-    id: sheetId,
-    type: "m",
+
+  // Try multiple approaches to access the calculated cell data
+  let cell: Cell | null = null;
+  let dataSource = "unknown";
+
+  // Approach 1: Try internal context (if accessible)
+  try {
+    const context = (workbook as any).context;
+    if (context?.luckysheetfile) {
+      const sheetIndex = context.luckysheetfile.findIndex(
+        (s: any) => s.id === sheetId
+      );
+      if (sheetIndex !== -1) {
+        const internalSheet = context.luckysheetfile[sheetIndex];
+        cell = internalSheet.data?.[row]?.[column] ?? null;
+        dataSource = "internal_context";
+      }
+    }
+  } catch (e) {
+    console.log(`[BUILD EVAL] Could not access internal context:`, e);
+  }
+
+  // Approach 2: Try fortuneSheetStore (React store)
+  if (!cell || !cell.v) {
+    const storeSheet = fortuneSheetStore.getSheetById(sheetId);
+    if (storeSheet) {
+      cell = storeSheet.data?.[row]?.[column] ?? null;
+      dataSource = "fortune_sheet_store";
+    }
+  }
+
+  // Approach 3: Try workbook.getSheet() (may be stale)
+  if (!cell || !cell.v) {
+    const sheet = workbook.getSheet({ id: sheetId });
+    if (sheet) {
+      cell = sheet.data?.[row]?.[column] ?? null;
+      dataSource = "workbook_getSheet";
+    }
+  }
+
+  // Extract values from cell object
+  const rawValue = cell?.v ?? null;
+  const displayValue = toDisplayString(cell?.m ?? cell?.v ?? null);
+
+  // Get formula
+  let formula: string | null = null;
+  if (typeof cell?.f === "string" && cell.f.trim().length > 0) {
+    // Strip HTML tags that FortuneSheet sometimes includes in formula strings
+    formula = cell.f.replace(/<[^>]*>/g, "").trim();
+  }
+
+  console.log(`[BUILD EVAL] ${label} - Cell data:`, {
+    hasCellObject: !!cell,
+    cellType: cell?.ct?.t,
+    cellV: cell?.v,
+    cellM: cell?.m,
+    cellF: cell?.f,
+    rawValue,
+    displayValue,
+    formula,
+    dataSource
   });
-  const formulaValueRaw = workbook.getCellValue(row, column, {
-    id: sheetId,
-    type: "f",
-  });
-
-  let lookup = sheetLookup;
-  let sheet: Sheet | undefined;
-  if (!lookup) {
-    sheet = fortuneSheetStore.getSheetById(sheetId) ?? workbook.getSheet({ id: sheetId });
-    lookup = sheet ? buildCelldataLookup(sheet) : new Map();
-  } else {
-    sheet = fortuneSheetStore.getSheetById(sheetId) ?? workbook.getSheet({ id: sheetId });
-  }
-
-  const cellFromLookup = lookup ? getCellFromLookup(lookup, row, column) : null;
-  const cell = cellFromLookup ?? getCellFromSheetSnapshot(sheet, row, column);
-  let formula =
-    typeof formulaValueRaw === "string" && formulaValueRaw.trim().length > 0
-      ? formulaValueRaw
-      : null;
-  if (!formula && cell && typeof cell === "object" && typeof cell.f === "string") {
-    formula = cell.f;
-  }
-  if (!formula && typeof rawValue === "string" && rawValue.trim().startsWith("=")) {
-    formula = rawValue.trim();
-  }
-
-  const displayValue =
-    displayValueRaw !== undefined && displayValueRaw !== null
-      ? toDisplayString(displayValueRaw)
-      : cell && cell.m !== undefined && cell.m !== null
-      ? String(cell.m)
-      : toDisplayString(rawValue);
 
   const error = detectErrorFromCell(cell, rawValue, displayValue);
 
@@ -358,90 +445,99 @@ function buildFormulaRules(fn: {
   return rules;
 }
 
-function getCellFromSheetSnapshot(
-  sheet: Sheet | undefined,
-  row: number,
-  column: number
-): Cell | null {
-  if (!sheet) {
-    return null;
-  }
-
-  if (Array.isArray(sheet.celldata)) {
-    const match = sheet.celldata.find(
-      (entry) => entry.r === row && entry.c === column,
-    );
-    if (match) {
-      return match.v ?? null;
-    }
-  }
-
-  if (Array.isArray(sheet.data) && Array.isArray(sheet.data[row])) {
-    const value = sheet.data[row]?.[column];
-    if (value && typeof value === "object") {
-      return value as Cell;
-    }
-    if (value !== undefined && value !== null) {
-      return {
-        v: value,
-        m: typeof value === "string" ? value : toDisplayString(value),
-      } as unknown as Cell;
-    }
-  }
-
-  return null;
-}
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Triggers formula calculation for the given range.
+ * Waits for React microtasks to flush so changes propagate to accessible data structures.
+ */
+async function calculateFormulaAndWait(
+  workbook: WorkbookInstance,
+  sheetId: string,
+  range: { row: [number, number]; column: [number, number] }
+): Promise<void> {
+  console.log(`[CALCULATE] Triggering formula calculation for range:`, range);
+
+  // Trigger calculation - this updates internal Context synchronously
+  workbook.calculateFormula(sheetId, range);
+
+  // Wait for React's microtask queue to flush so changes propagate
+  // FortuneSheet React wrapper may batch updates in microtasks
+  await Promise.resolve(); // Flush current microtask
+  await Promise.resolve(); // Flush any chained microtasks
+  await new Promise(resolve => setTimeout(resolve, 0)); // Flush macrotask queue
+
+  console.log(`[CALCULATE] Calculation complete - waited for React to flush`);
+}
+
 function shouldContinuePolling(
   evaluation: CellEvaluation,
-  expectFormula: boolean
+  expectFormula: boolean,
+  consecutiveErrorPatternPolls: number
 ): boolean {
+  // Stop polling if we detected an error via the error flag
   if (evaluation.error) {
     return false;
   }
+
+  // If we're not expecting a formula, stop polling
   if (!expectFormula) {
     return false;
   }
 
-  const hasValue =
-    evaluation.formula !== null ||
-    evaluation.displayValue !== null ||
-    evaluation.rawValue !== null;
+  // If formula exists and has a computed value
+  if (evaluation.formula) {
+    const hasComputedValue =
+      (evaluation.displayValue !== null && evaluation.displayValue !== "") ||
+      (evaluation.rawValue !== null && evaluation.rawValue !== "");
 
-  return !hasValue;
+    if (hasComputedValue) {
+      // Check if the computed value looks like an error pattern
+      const displayStr = evaluation.displayValue ?? "";
+      const rawStr = typeof evaluation.rawValue === "string" ? evaluation.rawValue : "";
+      const looksLikeError =
+        EXCEL_ERROR_PATTERN.test(displayStr.trim()) ||
+        EXCEL_ERROR_PATTERN.test(rawStr.trim());
+
+      if (looksLikeError) {
+        // Continue polling for more cycles to give error detection time to set the error flag
+        // We need to wait for FortuneSheet to update the cell object with ct.t === "e"
+        // Increased from 5 to 15 cycles (750ms) to ensure cell type flag is updated
+        return consecutiveErrorPatternPolls < 15;
+      }
+
+      // For normal computed values, stop polling
+      return false;
+    }
+
+    // Keep polling if formula exists but no computed value yet
+    return true;
+  }
+
+  // If no formula yet, keep polling
+  return true;
 }
 
-async function waitForCellEvaluation(
+function waitForCellEvaluation(
   workbook: WorkbookInstance,
   sheetId: string,
   row: number,
   column: number,
   options?: { expectFormula?: boolean }
-): Promise<CellEvaluation> {
-  const expectFormula = options?.expectFormula ?? false;
+): CellEvaluation {
+  // Build evaluation by reading directly from sheet.data (already updated synchronously)
+  const evaluation = buildCellEvaluation(workbook, sheetId, row, column);
 
-  let evaluation = buildCellEvaluation(workbook, sheetId, row, column);
-  if (!shouldContinuePolling(evaluation, expectFormula)) {
-    return evaluation;
-  }
-
-  await waitForWorkbookTick();
-  evaluation = buildCellEvaluation(workbook, sheetId, row, column);
-  if (!shouldContinuePolling(evaluation, expectFormula)) {
-    return evaluation;
-  }
-
-  for (let attempt = 0; attempt < EVALUATION_MAX_ATTEMPTS; attempt++) {
-    await delay(EVALUATION_POLL_INTERVAL_MS);
-    evaluation = buildCellEvaluation(workbook, sheetId, row, column);
-    if (!shouldContinuePolling(evaluation, expectFormula)) {
-      break;
-    }
-  }
+  const cellLabel = `${columnIndexToLetter(column)}${row + 1}`;
+  console.log(`[CELL EVAL] ${cellLabel} - Evaluation:`, {
+    error: evaluation.error,
+    displayValue: evaluation.displayValue,
+    rawValue: evaluation.rawValue,
+    formula: evaluation.formula,
+    hasError: !!evaluation.error
+  });
 
   return evaluation;
 }
@@ -682,13 +778,16 @@ async function updateCells(args: {
     for (let i = 0; i < resolvedCells.length; i++) {
       const { row, column, value } = resolvedCells[i];
       const normalized = normalizeValue(value);
+      console.log(`[UPDATE] Setting cell ${columnIndexToLetter(column)}${row + 1} to:`, normalized);
       workbook.setCellValue(row, column, normalized, { id: sheetId });
     }
 
     if (expectFormulas.some(Boolean)) {
       const minRow = Math.min(...resolvedCells.map((c) => c.row));
       const minColumn = Math.min(...resolvedCells.map((c) => c.column));
-      workbook.calculateFormula(sheetId, {
+
+      // Calculate formulas and wait for React to flush changes
+      await calculateFormulaAndWait(workbook, sheetId, {
         row: [minRow, maxRow],
         column: [minColumn, maxColumn],
       });
@@ -697,31 +796,37 @@ async function updateCells(args: {
     const evaluations: Array<CellEvaluation & { success: boolean }> = [];
     for (let i = 0; i < resolvedCells.length; i++) {
       const { row, column } = resolvedCells[i];
-      const evaluation = await waitForCellEvaluation(
+      const evaluation = waitForCellEvaluation(
         workbook,
         sheetId,
         row,
         column,
         { expectFormula: expectFormulas[i] }
       );
+
+      // Normalize error code if present
+      const normalizedEvaluation = evaluation.error
+        ? { ...evaluation, error: normalizeErrorCode(evaluation.error) }
+        : evaluation;
+
       evaluations.push({
-        ...evaluation,
+        ...normalizedEvaluation,
         success: !evaluation.error,
       });
     }
 
     const summary = {
       total: cells.length,
-      succeeded: evaluations.filter((e) => !e.error).length,
-      failed: evaluations.filter((e) => e.error).length,
+      withoutErrors: evaluations.filter((e) => !e.error).length,
+      withErrors: evaluations.filter((e) => e.error).length,
     };
 
     const addressList = resolvedCells.map((c) => c.address).join(", ");
 
-    if (summary.failed === 0) {
+    if (summary.withErrors === 0) {
       return {
         success: true,
-        message: `Updated ${summary.total} cell(s): ${addressList}`,
+        message: `Successfully updated ${summary.total} cell(s): ${addressList}`,
         summary,
         ...(returnDetails && {
           evaluations: evaluations.map(e => filterNullFields(e as unknown as Record<string, unknown>))
@@ -731,26 +836,30 @@ async function updateCells(args: {
 
     const errorCells = evaluations.filter((cell) => cell.error);
     const firstError = errorCells[0]!;
+    const normalizedErrorCode = normalizeErrorCode(firstError.error!);
 
     return {
-      success: false,
-      message: `Updated ${summary.succeeded} cells, but ${summary.failed} failed`,
+      success: true,
+      message: `Successfully wrote ${summary.total} cell(s), but ${summary.withErrors} formula(s) contain errors and need to be fixed: ${errorCells.map(e => e.address).join(", ")}`,
       summary,
+      formulaErrors: {
+        count: summary.withErrors,
+        note: "The cells were successfully updated, but the formulas contain errors. Fix the formulas by calling updateSpreadsheetCells again with corrected formulas.",
+      },
       firstError: {
         address: firstError.address,
         formula: firstError.formula,
         value: firstError.displayValue,
         error: {
           type: determineErrorType(firstError.error!),
-          code: firstError.error!,
+          code: normalizedErrorCode,
           resolution: getErrorSpecificResolution(firstError.error!),
         },
       },
-      ...(summary.failed > 1 && {
+      ...(summary.withErrors > 1 && {
         moreErrors: {
-          count: summary.failed - 1,
+          count: summary.withErrors - 1,
           addresses: errorCells.slice(1).map((e) => e.address),
-          note: "Call getSpreadsheetErrors with these addresses for details",
         },
       }),
       ...(returnDetails && {
@@ -1313,7 +1422,7 @@ async function getSpreadsheetInfo() {
 export const updateCellsTool = {
   name: "updateSpreadsheetCells",
   description:
-    "Update one or more cells by specifying exact addresses. This gives you precise control over where each value goes. Works for single cells or batch updates.",
+    "Update one or more cells by specifying exact addresses. Works for single cells or batch updates. IMPORTANT: success=true means cells were written successfully. If formulas contain errors (like #DIV/0!, #NAME?), they are still written to cells but will be flagged in firstError/formulaErrors. You should then fix the formula by calling this tool again with a corrected formula.",
   tool: updateCells,
   toolSchema: z
     .function()
@@ -1341,16 +1450,23 @@ export const updateCellsTool = {
     )
     .returns(
       z.object({
-        success: z.boolean(),
+        success: z.boolean().describe("True if cells were successfully written. Note: formulas with errors are still written successfully, but flagged in formulaErrors."),
         message: z.string().optional(),
         error: z.string().optional(),
         summary: z
           .object({
             total: z.number(),
-            succeeded: z.number(),
-            failed: z.number(),
+            withoutErrors: z.number(),
+            withErrors: z.number(),
           })
           .optional(),
+        formulaErrors: z
+          .object({
+            count: z.number(),
+            note: z.string(),
+          })
+          .optional()
+          .describe("Present when formulas contain errors. The cells were written, but formulas need fixing."),
         firstError: z
           .object({
             address: z.string(),
@@ -1358,12 +1474,12 @@ export const updateCellsTool = {
             value: z.string().nullable(),
             error: errorDetailSchema,
           })
-          .optional(),
+          .optional()
+          .describe("Details about the first formula error encountered. Use this to fix the formula."),
         moreErrors: z
           .object({
             count: z.number(),
             addresses: z.array(z.string()),
-            note: z.string(),
           })
           .optional(),
         evaluations: z.array(cellEvaluationWithStatusSchema).optional(),
