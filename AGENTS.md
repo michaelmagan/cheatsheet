@@ -49,7 +49,8 @@ AI-powered spreadsheet using **Tambo** (https://tambo.co) + FortuneSheet. See ht
 - 2-space indent, PascalCase components, camelCase hooks, kebab-case utils
 - FortuneSheet helpers in `src/lib/fortune-sheet-*.ts`
 
-**Commits:**
+**Build & Commit:**
+- Run `npm run build` BEFORE committing (not after every fix)
 - Imperative mood (`Add utils`, `Fix context`)
 - Mention affected Tambo tools/components explicitly
 
