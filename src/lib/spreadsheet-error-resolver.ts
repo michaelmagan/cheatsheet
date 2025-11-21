@@ -16,7 +16,7 @@ export const FORMULA_ERROR_RESOLUTION =
  * @param errorCode - The error code (e.g., "DIV/0", "#DIV/0!", "NAME?")
  * @returns Normalized error code (e.g., "#DIV/0!")
  */
-function normalizeErrorCode(errorCode: string): string {
+export function normalizeErrorCode(errorCode: string): string {
   let normalized = errorCode.trim().toUpperCase();
 
   // Add # prefix if missing
