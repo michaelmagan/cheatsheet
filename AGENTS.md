@@ -52,3 +52,10 @@ AI-powered spreadsheet using **Tambo** (https://tambo.co) + FortuneSheet. See ht
 **Commits:**
 - Imperative mood (`Add utils`, `Fix context`)
 - Mention affected Tambo tools/components explicitly
+
+**Dependency Upgrades:**
+- When upgrading Tambo packages or UI components, preserve custom edits
+- Key customizations to preserve:
+  - `src/components/tambo/message-thread-full.tsx` - GitHub and Tambo buttons in sidebar
+  - `src/components/tambo/thread-history.tsx` - Exported `useThreadHistoryContext` hook
+- Always review diffs before accepting upstream changes
