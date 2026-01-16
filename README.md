@@ -1,3 +1,35 @@
+
+<div align="right">
+  <details>
+    <summary >🌐 Language</summary>
+    <div>
+      <div align="center">
+        <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=en">English</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=zh-CN">简体中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=zh-TW">繁體中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=ja">日本語</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=ko">한국어</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=hi">हिन्दी</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=th">ไทย</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=fr">Français</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=de">Deutsch</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=es">Español</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=it">Italiano</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=ru">Русский</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=pt">Português</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=nl">Nederlands</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=pl">Polski</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=ar">العربية</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=fa">فارسی</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=tr">Türkçe</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=vi">Tiếng Việt</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=id">Bahasa Indonesia</a>
+        | <a href="https://openaitx.github.io/view.html?user=michaelmagan&project=cheatsheet&lang=as">অসমীয়া</
+      </div>
+    </div>
+  </details>
+</div>
+
 # Cheat Sheet
 
 [![GitHub](https://img.shields.io/badge/github-michaelmagan/cheatsheet-blue?logo=github)](https://github.com/michaelmagan/cheatsheet)
