@@ -29,7 +29,7 @@ export const ScrollableMessageContainer = React.forwardRef<
   ScrollableMessageContainerProps
 >(({ className, children, ...props }, ref) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const { thread } = useTambo();
+  const { messages, streamingState } = useTambo();
   const [shouldAutoscroll, setShouldAutoscroll] = useState(true);
   const lastScrollTopRef = useRef(0);
 
@@ -38,19 +38,16 @@ export const ScrollableMessageContainer = React.forwardRef<
 
   // Create a dependency that represents all content that should trigger autoscroll
   const messagesContent = React.useMemo(() => {
-    if (!thread.messages) return null;
+    if (!messages) return null;
 
-    return thread.messages.map((message) => ({
+    return messages.map((message) => ({
       id: message.id,
       content: message.content,
-      tool_calls: message.tool_calls,
-      component: message.component,
       reasoning: message.reasoning,
-      componentState: message.componentState,
     }));
-  }, [thread.messages]);
+  }, [messages]);
 
-  const generationStage = thread?.generationStage ?? "IDLE";
+  const streamingStatus = streamingState.status;
 
   // Handle scroll events to detect user scrolling
   const handleScroll = () => {
@@ -84,7 +81,7 @@ export const ScrollableMessageContainer = React.forwardRef<
         }
       };
 
-      if (generationStage === "STREAMING_RESPONSE") {
+      if (streamingStatus === "streaming") {
         // During streaming, scroll immediately
         requestAnimationFrame(scroll);
       } else {
@@ -93,7 +90,7 @@ export const ScrollableMessageContainer = React.forwardRef<
         return () => clearTimeout(timeoutId);
       }
     }
-  }, [messagesContent, generationStage, shouldAutoscroll]);
+  }, [messagesContent, streamingStatus, shouldAutoscroll]);
 
   return (
     <div

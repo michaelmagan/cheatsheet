@@ -47,7 +47,7 @@ const detectNewSheet = (
 // Tool implementations
 // ============================================
 
-const createTab = async (name?: string) => {
+const createTab = async (args: { name?: string }) => {
   try {
     const workbook = requireWorkbook();
     const existing =
@@ -61,8 +61,8 @@ const createTab = async (name?: string) => {
     );
 
     const desiredName =
-      name && name.trim().length > 0
-        ? sanitizeTabName(name)
+      args.name && args.name.trim().length > 0
+        ? sanitizeTabName(args.name)
         : `Sheet ${existing.length + 1}`;
 
     workbook.addSheet();
@@ -157,50 +157,42 @@ export const createTabTool = {
   description:
     "Create a new spreadsheet tab. Optionally provide a name for the tab. The new tab becomes active automatically.",
   tool: createTab,
-  toolSchema: z
-    .function()
-    .args(
-      z
-        .string()
-        .optional()
-        .describe("Optional name for the new tab (e.g., 'Sales Data')"),
-    )
-    .returns(
-      z.object({
-        success: z.boolean(),
-        tabId: z.string().optional(),
-        tabName: z.string().optional(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-      }),
-    ),
+  inputSchema: z.object({
+    name: z
+      .string()
+      .optional()
+      .describe("Optional name for the new tab (e.g., 'Sales Data')"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    tabId: z.string().optional(),
+    tabName: z.string().optional(),
+    message: z.string().optional(),
+    error: z.string().optional(),
+  }),
 };
 
 export const getTabsTool = {
   name: "getSpreadsheetTabs",
   description: "List all spreadsheet tabs and indicate which one is active.",
   tool: getTabs,
-  toolSchema: z
-    .function()
-    .args()
-    .returns(
-      z.object({
-        success: z.boolean(),
-        tabs: z
-          .array(
-            z.object({
-              id: z.string(),
-              name: z.string(),
-              isActive: z.boolean(),
-            }),
-          )
-          .optional(),
-        activeTabId: z.string().optional(),
-        activeTabName: z.string().optional(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-      }),
-    ),
+  inputSchema: z.object({}),
+  outputSchema: z.object({
+    success: z.boolean(),
+    tabs: z
+      .array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          isActive: z.boolean(),
+        }),
+      )
+      .optional(),
+    activeTabId: z.string().optional(),
+    activeTabName: z.string().optional(),
+    message: z.string().optional(),
+    error: z.string().optional(),
+  }),
 };
 
 export const tabTools = [createTabTool, getTabsTool];

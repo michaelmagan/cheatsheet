@@ -28,13 +28,15 @@ export default function Home() {
           tamboUrl={process.env.NEXT_PUBLIC_TAMBO_URL!}
           components={components}
           tools={tools}
+          mcpServers={mcpServers}
+          userKey={contextKey ?? undefined}
           contextHelpers={{
             spreadsheet: spreadsheetContextHelper,
             selection: spreadsheetSelectionContextHelper,
             tabs: tabContextHelper,
           }}
         >
-          <TamboMcpProvider mcpServers={mcpServers}>
+          <TamboMcpProvider>
             {/* Mobile toggle button */}
             <button
               onClick={() => setShowSpreadsheet(!showSpreadsheet)}

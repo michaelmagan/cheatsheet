@@ -805,7 +805,7 @@ async function updateCellStyles(args: { targets: StyleTargetInput[] }) {
   }
 }
 
-async function addColumn(count: number = 1) {
+async function addColumn({ count = 1 }: { count?: number }) {
   try {
     if (count < 1) {
       throw new Error("Count must be at least 1.");
@@ -834,7 +834,7 @@ async function addColumn(count: number = 1) {
   }
 }
 
-async function removeColumn(columnId: string) {
+async function removeColumn({ columnId }: { columnId: string }) {
   try {
     const workbook = await ensureWorkbook();
     const { sheetId, sheet } = getActiveSheetSnapshot();
@@ -859,7 +859,7 @@ async function removeColumn(columnId: string) {
   }
 }
 
-async function addRow(count: number = 1) {
+async function addRow({ count = 1 }: { count?: number }) {
   try {
     if (count < 1) {
       throw new Error("Count must be at least 1.");
@@ -886,7 +886,7 @@ async function addRow(count: number = 1) {
   }
 }
 
-async function removeRow(rowId: string | number) {
+async function removeRow({ rowId }: { rowId: string | number }) {
   try {
     const rowNumber = typeof rowId === "string" ? Number(rowId) : rowId;
     if (!Number.isFinite(rowNumber) || rowNumber < 1) {
@@ -913,7 +913,7 @@ async function removeRow(rowId: string | number) {
   }
 }
 
-async function readCell(address: string) {
+async function readCell({ address }: { address: string }) {
   try {
     const { sheet } = getActiveSheetSnapshot();
     const cellAddress = parseCellReference(address);
@@ -971,10 +971,10 @@ function resolveCellDisplay(cell: Cell | null): string | null {
   return null;
 }
 
-async function readRange(
-  range: string,
-  mode?: "summary" | "values" | "full"
-) {
+async function readRange({ range, mode }: {
+  range: string;
+  mode?: "summary" | "values" | "full";
+}) {
   try {
     const resolvedRange = resolveRange(range);
     const { sheet } = getActiveSheetSnapshot();
@@ -1101,7 +1101,7 @@ async function readRange(
   }
 }
 
-async function clearRange(range: string) {
+async function clearRange({ range }: { range: string }) {
   try {
     const workbook = await ensureWorkbook();
     const { sheetId } = getActiveSheetSnapshot();
@@ -1129,11 +1129,10 @@ async function clearRange(range: string) {
   }
 }
 
-async function listFormulas(options?: { category?: string; page?: number; pageSize?: number }) {
+async function listFormulas({ category, page: pageProp, pageSize: pageSizeProp }: { category?: string; page?: number; pageSize?: number } = {}) {
   try {
-    const category = options?.category;
-    const page = options?.page ?? 1;
-    const pageSize = options?.pageSize ?? 20;
+    const page = pageProp ?? 1;
+    const pageSize = pageSizeProp ?? 20;
 
     // Validate pagination parameters
     if (page < 1) {
@@ -1272,67 +1271,61 @@ export const updateCellsTool = {
   description:
     "Update one or more cells by specifying exact addresses. Works for single cells or batch updates. IMPORTANT: success=true means cells were written successfully. If formulas contain errors (like #DIV/0!, #NAME?), they are still written to cells but will be flagged in firstError/formulaErrors. You should then fix the formula by calling this tool again with a corrected formula.",
   tool: updateCells,
-  toolSchema: z
-    .function()
-    .args(
-      z.object({
-        cells: z
-          .array(
-            z.object({
-              address: z.string().describe(
-                "Cell address in A1 notation (e.g., 'B5', 'AA12')"
-              ),
-              value: cellValueSchema.describe(
-                "Cell value. Types: (1) Formula - string starting with '=' like '=SUM(A1:A10)'. (2) Number - number type OR numeric string like 42, '42', -15.5, '-15.5', '1e10'. Numeric strings are auto-converted to numbers. (3) Text - non-numeric string like 'Hello', 'Item 123'. (4) Empty - null or ''."
-              ),
-            })
-          )
-          .describe(
-            "Array of cells to update. Recommended: ~20 cells per call for manageability, but you can include more if needed."
+  inputSchema: z.object({
+    cells: z
+      .array(
+        z.object({
+          address: z.string().describe(
+            "Cell address in A1 notation (e.g., 'B5', 'AA12')"
           ),
-        returnDetails: z
-          .boolean()
-          .optional()
-          .describe("Set to true for detailed per-cell results (uses more tokens)"),
+          value: cellValueSchema.describe(
+            "Cell value. Types: (1) Formula - string starting with '=' like '=SUM(A1:A10)'. (2) Number - number type OR numeric string like 42, '42', -15.5, '-15.5', '1e10'. Numeric strings are auto-converted to numbers. (3) Text - non-numeric string like 'Hello', 'Item 123'. (4) Empty - null or ''."
+          ),
+        })
+      )
+      .describe(
+        "Array of cells to update. Recommended: ~20 cells per call for manageability, but you can include more if needed."
+      ),
+    returnDetails: z
+      .boolean()
+      .optional()
+      .describe("Set to true for detailed per-cell results (uses more tokens)"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean().describe("True if cells were successfully written. Note: formulas with errors are still written successfully, but flagged in formulaErrors."),
+    message: z.string().optional(),
+    error: z.string().optional(),
+    summary: z
+      .object({
+        total: z.number(),
+        withoutErrors: z.number(),
+        withErrors: z.number(),
       })
-    )
-    .returns(
-      z.object({
-        success: z.boolean().describe("True if cells were successfully written. Note: formulas with errors are still written successfully, but flagged in formulaErrors."),
-        message: z.string().optional(),
-        error: z.string().optional(),
-        summary: z
-          .object({
-            total: z.number(),
-            withoutErrors: z.number(),
-            withErrors: z.number(),
-          })
-          .optional(),
-        formulaErrors: z
-          .object({
-            count: z.number(),
-            note: z.string(),
-          })
-          .optional()
-          .describe("Present when formulas contain errors. The cells were written, but formulas need fixing."),
-        firstError: z
-          .object({
-            address: z.string(),
-            formula: z.string().nullable(),
-            value: z.string().nullable(),
-            error: errorDetailSchema,
-          })
-          .optional()
-          .describe("Details about the first formula error encountered. Use this to fix the formula."),
-        moreErrors: z
-          .object({
-            count: z.number(),
-            addresses: z.array(z.string()),
-          })
-          .optional(),
-        evaluations: z.array(cellEvaluationWithStatusSchema).optional(),
+      .optional(),
+    formulaErrors: z
+      .object({
+        count: z.number(),
+        note: z.string(),
       })
-    ),
+      .optional()
+      .describe("Present when formulas contain errors. The cells were written, but formulas need fixing."),
+    firstError: z
+      .object({
+        address: z.string(),
+        formula: z.string().nullable(),
+        value: z.string().nullable(),
+        error: errorDetailSchema,
+      })
+      .optional()
+      .describe("Details about the first formula error encountered. Use this to fix the formula."),
+    moreErrors: z
+      .object({
+        count: z.number(),
+        addresses: z.array(z.string()),
+      })
+      .optional(),
+    evaluations: z.array(cellEvaluationWithStatusSchema).optional(),
+  }),
 };
 
 export const updateCellStylesTool = {
@@ -1340,115 +1333,95 @@ export const updateCellStylesTool = {
   description:
     "Apply formatting such as bold text, font colors, fills, alignment, wrapping, or rotation to one or more ranges.",
   tool: updateCellStyles,
-  toolSchema: z
-    .function()
-    .args(
-      z.object({
-        targets: z
-          .array(styleTargetSchema)
-          .min(1, "Provide at least one range to style.")
-          .describe(
-            "Ranges to style. Each range can be specified via A1 notation or explicit start/end coordinates along with the style properties to apply."
-          ),
-      })
-    )
-    .returns(
-      z.object({
-        success: z.boolean(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-        applied: z
-          .array(
-            z.object({
-              range: z.string(),
-              styles: z.array(z.string()),
-            })
-          )
-          .optional(),
-      })
-    ),
+  inputSchema: z.object({
+    targets: z
+      .array(styleTargetSchema)
+      .min(1, "Provide at least one range to style.")
+      .describe(
+        "Ranges to style. Each range can be specified via A1 notation or explicit start/end coordinates along with the style properties to apply."
+      ),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    message: z.string().optional(),
+    error: z.string().optional(),
+    applied: z
+      .array(
+        z.object({
+          range: z.string(),
+          styles: z.array(z.string()),
+        })
+      )
+      .optional(),
+  }),
 };
 
 export const addColumnTool = {
   name: "addSpreadsheetColumn",
   description: "Append new columns to the active sheet.",
   tool: addColumn,
-  toolSchema: z
-    .function()
-    .args(
-      z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Number of columns to add (default: 1)")
-    )
-    .returns(
-      z.object({
-        success: z.boolean(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-      })
-    ),
+  inputSchema: z.object({
+    count: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Number of columns to add (default: 1)"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    message: z.string().optional(),
+    error: z.string().optional(),
+  }),
 };
 
 export const removeColumnTool = {
   name: "removeSpreadsheetColumn",
   description: "Remove a column (e.g., 'B') from the active sheet.",
   tool: removeColumn,
-  toolSchema: z
-    .function()
-    .args(z.string().describe("Column letter to remove"))
-    .returns(
-      z.object({
-        success: z.boolean(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-      })
-    ),
+  inputSchema: z.object({
+    columnId: z.string().describe("Column letter to remove"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    message: z.string().optional(),
+    error: z.string().optional(),
+  }),
 };
 
 export const addRowTool = {
   name: "addSpreadsheetRow",
   description: "Append new rows to the active sheet.",
   tool: addRow,
-  toolSchema: z
-    .function()
-    .args(
-      z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Number of rows to add (default: 1)")
-    )
-    .returns(
-      z.object({
-        success: z.boolean(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-      })
-    ),
+  inputSchema: z.object({
+    count: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Number of rows to add (default: 1)"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    message: z.string().optional(),
+    error: z.string().optional(),
+  }),
 };
 
 export const removeRowTool = {
   name: "removeSpreadsheetRow",
   description: "Remove a row by number (e.g., 3).",
   tool: removeRow,
-  toolSchema: z
-    .function()
-    .args(
-      z.union([z.string(), z.number()]).describe(
-        "Row number to remove (1-based)."
-      )
-    )
-    .returns(
-      z.object({
-        success: z.boolean(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-      })
+  inputSchema: z.object({
+    rowId: z.union([z.string(), z.number()]).describe(
+      "Row number to remove (1-based)."
     ),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    message: z.string().optional(),
+    error: z.string().optional(),
+  }),
 };
 
 export const readCellTool = {
@@ -1456,28 +1429,24 @@ export const readCellTool = {
   description:
     "Read a single cell from the active sheet using A1 notation (e.g., 'B5').",
   tool: readCell,
-  toolSchema: z
-    .function()
-    .args(
-      z.string().describe("Cell address in A1 notation (e.g., 'B5')")
-    )
-    .returns(
-      z.union([
-        z.object({
-          success: z.literal(true),
-          cell: z.object({
-            value: z.any().describe("Raw cell value"),
-            displayValue: z.string().nullable().describe("Formatted display value"),
-            formula: z.string().optional().describe("Formula if present"),
-          }).nullable(),
-          message: z.string(),
-        }),
-        z.object({
-          success: z.literal(false),
-          error: z.string(),
-        }),
-      ])
-    ),
+  inputSchema: z.object({
+    address: z.string().describe("Cell address in A1 notation (e.g., 'B5')"),
+  }),
+  outputSchema: z.union([
+    z.object({
+      success: z.literal(true),
+      cell: z.object({
+        value: z.any().describe("Raw cell value"),
+        displayValue: z.string().nullable().describe("Formatted display value"),
+        formula: z.string().optional().describe("Formula if present"),
+      }).nullable(),
+      message: z.string(),
+    }),
+    z.object({
+      success: z.literal(false),
+      error: z.string(),
+    }),
+  ]),
 };
 
 export const readRangeTool = {
@@ -1485,50 +1454,46 @@ export const readRangeTool = {
   description:
     "Read a rectangular range of cells with flexible output modes using A1 notation (e.g., 'A1:C5').",
   tool: readRange,
-  toolSchema: z
-    .function()
-    .args(
-      z.string().describe("Range in A1 notation (e.g., 'A1:C5')"),
-      z.enum(["summary", "values", "full"]).optional().describe("Output mode (auto-selected if not specified)")
-    )
-    .returns(
-      z.union([
-        z.object({
-          success: z.literal(true),
-          mode: z.literal("summary"),
-          summary: z.object({
-            range: z.string().describe("Full range in A1 notation"),
-            rowCount: z.number().describe("Total number of rows in range"),
-            columnCount: z.number().describe("Total number of columns in range"),
-            totalCells: z.number().describe("Total number of cells in range"),
-          }),
-          preview: z.array(z.array(z.string().nullable())).describe("First 3 rows of data as display values"),
-          message: z.string(),
-          hasMore: z.boolean().describe("True if there are more rows beyond the preview"),
-        }),
-        z.object({
-          success: z.literal(true),
-          mode: z.literal("values"),
-          data: z.array(z.array(z.string().nullable())).describe("2D array of display values"),
-          message: z.string(),
-        }),
-        z.object({
-          success: z.literal(true),
-          mode: z.literal("full"),
-          data: z.array(z.object({
-            cell: z.string().describe("Cell address in A1 notation"),
-            value: z.any().describe("Raw cell value"),
-            displayValue: z.string().describe("Formatted display value"),
-            formula: z.string().optional().describe("Formula if present"),
-          })).describe("Array of non-empty cells with A1 addresses"),
-          message: z.string(),
-        }),
-        z.object({
-          success: z.literal(false),
-          error: z.string(),
-        }),
-      ])
-    ),
+  inputSchema: z.object({
+    range: z.string().describe("Range in A1 notation (e.g., 'A1:C5')"),
+    mode: z.enum(["summary", "values", "full"]).optional().describe("Output mode (auto-selected if not specified)"),
+  }),
+  outputSchema: z.union([
+    z.object({
+      success: z.literal(true),
+      mode: z.literal("summary"),
+      summary: z.object({
+        range: z.string().describe("Full range in A1 notation"),
+        rowCount: z.number().describe("Total number of rows in range"),
+        columnCount: z.number().describe("Total number of columns in range"),
+        totalCells: z.number().describe("Total number of cells in range"),
+      }),
+      preview: z.array(z.array(z.string().nullable())).describe("First 3 rows of data as display values"),
+      message: z.string(),
+      hasMore: z.boolean().describe("True if there are more rows beyond the preview"),
+    }),
+    z.object({
+      success: z.literal(true),
+      mode: z.literal("values"),
+      data: z.array(z.array(z.string().nullable())).describe("2D array of display values"),
+      message: z.string(),
+    }),
+    z.object({
+      success: z.literal(true),
+      mode: z.literal("full"),
+      data: z.array(z.object({
+        cell: z.string().describe("Cell address in A1 notation"),
+        value: z.any().describe("Raw cell value"),
+        displayValue: z.string().describe("Formatted display value"),
+        formula: z.string().optional().describe("Formula if present"),
+      })).describe("Array of non-empty cells with A1 addresses"),
+      message: z.string(),
+    }),
+    z.object({
+      success: z.literal(false),
+      error: z.string(),
+    }),
+  ]),
 };
 
 export const clearRangeTool = {
@@ -1536,18 +1501,14 @@ export const clearRangeTool = {
   description:
     "Clear a range of cells by removing their values using A1 notation (e.g., 'A1:C5').",
   tool: clearRange,
-  toolSchema: z
-    .function()
-    .args(
-      z.string().describe("Range in A1 notation (e.g., 'A1:C5')")
-    )
-    .returns(
-      z.object({
-        success: z.boolean(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-      })
-    ),
+  inputSchema: z.object({
+    range: z.string().describe("Range in A1 notation (e.g., 'A1:C5')"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    message: z.string().optional(),
+    error: z.string().optional(),
+  }),
 };
 
 export const listFormulasTool = {
@@ -1555,42 +1516,34 @@ export const listFormulasTool = {
   description:
     "List the supported spreadsheet functions (names with brief descriptions only). Optionally filter by category (Math, Statistical, Text, Logical, Date, Lookup, Financial, Information). Ask which functions need deeper guidance, then call getSpreadsheetFormulaHelp for those.",
   tool: listFormulas,
-  toolSchema: z
-    .function()
-    .args(
-      z
-        .object({
-          category: z.string().optional().describe("Optional category filter (Math, Statistical, Text, Logical, Date, Lookup, Financial, Information)"),
-          page: z.number().int().min(1).optional().describe("Page number (default: 1)"),
-          pageSize: z.number().int().min(1).max(100).optional().describe("Functions per page (default: 20, max: 100)"),
+  inputSchema: z.object({
+    category: z.string().optional().describe("Optional category filter (Math, Statistical, Text, Logical, Date, Lookup, Financial, Information)"),
+    page: z.number().int().min(1).optional().describe("Page number (default: 1)"),
+    pageSize: z.number().int().min(1).max(100).optional().describe("Functions per page (default: 20, max: 100)"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    functions: z
+      .array(
+        z.object({
+          name: z.string(),
+          description: z.string(),
         })
-        .optional()
-    )
-    .returns(
-      z.object({
-        success: z.boolean(),
-        functions: z
-          .array(
-            z.object({
-              name: z.string(),
-              description: z.string(),
-            })
-          )
-          .optional(),
-        pagination: z
-          .object({
-            page: z.number().describe("Current page number"),
-            pageSize: z.number().describe("Number of items per page"),
-            totalItems: z.number().describe("Total number of functions available"),
-            totalPages: z.number().describe("Total number of pages"),
-            hasNextPage: z.boolean().describe("Whether there is a next page"),
-            hasPreviousPage: z.boolean().describe("Whether there is a previous page"),
-          })
-          .optional(),
-        message: z.string().optional(),
-        error: z.string().optional(),
+      )
+      .optional(),
+    pagination: z
+      .object({
+        page: z.number().describe("Current page number"),
+        pageSize: z.number().describe("Number of items per page"),
+        totalItems: z.number().describe("Total number of functions available"),
+        totalPages: z.number().describe("Total number of pages"),
+        hasNextPage: z.boolean().describe("Whether there is a next page"),
+        hasPreviousPage: z.boolean().describe("Whether there is a previous page"),
       })
-    ),
+      .optional(),
+    message: z.string().optional(),
+    error: z.string().optional(),
+  }),
 };
 
 export const getFormulaHelpTool = {
@@ -1598,30 +1551,24 @@ export const getFormulaHelpTool = {
   description:
     "Fetch detailed metadata (signature, rules, examples) for a specific function previously surfaced via listSpreadsheetFormulas. Function names are case-insensitive; call repeatedly if you need multiple.",
   tool: getFormulaHelp,
-  toolSchema: z
-    .function()
-    .args(
-      z.object({
-        functionName: z.string().describe("Function name, e.g., 'SUM'"),
+  inputSchema: z.object({
+    functionName: z.string().describe("Function name, e.g., 'SUM'"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    function: z
+      .object({
+        name: z.string(),
+        category: z.string(),
+        signature: z.string(),
+        description: z.string(),
+        example: z.string().optional(),
+        rules: z.array(z.string()),
       })
-    )
-    .returns(
-      z.object({
-        success: z.boolean(),
-        function: z
-          .object({
-            name: z.string(),
-            category: z.string(),
-            signature: z.string(),
-            description: z.string(),
-            example: z.string().optional(),
-            rules: z.array(z.string()),
-          })
-          .optional(),
-        message: z.string().optional(),
-        error: z.string().optional(),
-      })
-    ),
+      .optional(),
+    message: z.string().optional(),
+    error: z.string().optional(),
+  }),
 };
 
 export const getSpreadsheetInfoTool = {
@@ -1629,42 +1576,38 @@ export const getSpreadsheetInfoTool = {
   description:
     "Get comprehensive information about the active spreadsheet, including dimensions, data extent, and capacity for expansion.",
   tool: getSpreadsheetInfo,
-  toolSchema: z
-    .function()
-    .args()
-    .returns(
-      z.union([
-        z.object({
-          success: z.literal(true),
-          activeSheet: z.object({
-            rows: z.number().describe("Current number of rows in the active sheet"),
-            columns: z.number().describe("Current number of columns in the active sheet"),
-          }),
-          dataExtent: z
-            .object({
-              range: z.string().describe("Full range of non-empty cells (e.g., 'A1:C10')"),
-              start: z.string().describe("Top-left cell of data range (e.g., 'A1')"),
-              end: z.string().describe("Bottom-right cell of data range (e.g., 'C10')"),
-            })
-            .nullable()
-            .describe("Extent of non-empty cells, or null if sheet is empty"),
-          capacity: z.object({
-            availableRows: z.number().describe("Number of additional rows that can be added"),
-            availableColumns: z.number().describe("Number of additional columns that can be added"),
-            canAddRows: z.boolean().describe("Whether more rows can be added"),
-            canAddColumns: z.boolean().describe("Whether more columns can be added"),
-          }),
-          limits: z.object({
-            maxRows: z.number().describe("Maximum rows allowed in the spreadsheet"),
-            maxColumns: z.number().describe("Maximum columns allowed in the spreadsheet"),
-          }),
-        }),
-        z.object({
-          success: z.literal(false),
-          error: z.string(),
-        }),
-      ])
-    ),
+  inputSchema: z.object({}),
+  outputSchema: z.union([
+    z.object({
+      success: z.literal(true),
+      activeSheet: z.object({
+        rows: z.number().describe("Current number of rows in the active sheet"),
+        columns: z.number().describe("Current number of columns in the active sheet"),
+      }),
+      dataExtent: z
+        .object({
+          range: z.string().describe("Full range of non-empty cells (e.g., 'A1:C10')"),
+          start: z.string().describe("Top-left cell of data range (e.g., 'A1')"),
+          end: z.string().describe("Bottom-right cell of data range (e.g., 'C10')"),
+        })
+        .nullable()
+        .describe("Extent of non-empty cells, or null if sheet is empty"),
+      capacity: z.object({
+        availableRows: z.number().describe("Number of additional rows that can be added"),
+        availableColumns: z.number().describe("Number of additional columns that can be added"),
+        canAddRows: z.boolean().describe("Whether more rows can be added"),
+        canAddColumns: z.boolean().describe("Whether more columns can be added"),
+      }),
+      limits: z.object({
+        maxRows: z.number().describe("Maximum rows allowed in the spreadsheet"),
+        maxColumns: z.number().describe("Maximum columns allowed in the spreadsheet"),
+      }),
+    }),
+    z.object({
+      success: z.literal(false),
+      error: z.string(),
+    }),
+  ]),
 };
 
 export const spreadsheetTools = [
