@@ -260,8 +260,8 @@ const MessageSuggestionsStatus = React.forwardRef<
       data-slot="message-suggestions-status"
       {...props}
     >
-      {/* Error state */}
-      {error && (
+      {/* Error state — suppress transient 404s for ephemeral messages (SDK timing issue) */}
+      {error && !error.message?.includes("ephemeral") && (
         <div className="p-2 rounded-md text-sm bg-red-50 text-red-500">
           <p>{error.message}</p>
         </div>

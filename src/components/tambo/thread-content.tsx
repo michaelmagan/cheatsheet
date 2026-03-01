@@ -129,7 +129,17 @@ const ThreadContentMessages = React.forwardRef<
   const { messages, isGenerating, variant } = useThreadContentContext();
 
   const filteredMessages = messages.filter(
-    (message) => message.role !== "system" && !message.parentMessageId,
+    (message) =>
+      message.role !== "system" &&
+      !message.parentMessageId &&
+      // Hide user messages that only contain tool_result blocks (no text).
+      // These are intermediate turn messages in the Anthropic tool-use flow
+      // that appear when messages are loaded from the API.
+      !(
+        message.role === "user" &&
+        message.content.length > 0 &&
+        message.content.every((block) => block.type === "tool_result")
+      ),
   );
 
   return (
