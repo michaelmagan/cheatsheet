@@ -33,7 +33,6 @@ interface ThreadHistoryContextValue {
   isCollapsed: boolean;
   setIsCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
   onThreadChange?: () => void;
-  contextKey?: string;
   position?: "left" | "right";
   updateThreadName: (threadId: string, name: string) => Promise<void>;
 }
@@ -55,7 +54,6 @@ const useThreadHistoryContext = () => {
  * Root component that provides context for thread history
  */
 interface ThreadHistoryProps extends React.HTMLAttributes<HTMLDivElement> {
-  contextKey?: string;
   onThreadChange?: () => void;
   children?: React.ReactNode;
   defaultCollapsed?: boolean;
@@ -66,7 +64,6 @@ const ThreadHistory = React.forwardRef<HTMLDivElement, ThreadHistoryProps>(
   (
     {
       className,
-      contextKey,
       onThreadChange,
       defaultCollapsed = true,
       position = "left",
@@ -125,7 +122,6 @@ const ThreadHistory = React.forwardRef<HTMLDivElement, ThreadHistoryProps>(
         isCollapsed,
         setIsCollapsed,
         onThreadChange,
-        contextKey,
         position,
         updateThreadName,
       }),
@@ -140,7 +136,6 @@ const ThreadHistory = React.forwardRef<HTMLDivElement, ThreadHistoryProps>(
         searchQuery,
         isCollapsed,
         onThreadChange,
-        contextKey,
         position,
         updateThreadName,
       ],

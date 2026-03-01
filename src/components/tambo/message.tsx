@@ -11,7 +11,7 @@ import type { TamboThreadMessage } from "@tambo-ai/react";
 import { useTambo } from "@tambo-ai/react";
 import { cva, type VariantProps } from "class-variance-authority";
 import stringify from "json-stringify-pretty-compact";
-import { Check, ChevronDown, ExternalLink, Loader2, X } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, Loader2 } from "lucide-react";
 import Image from "next/image";
 import * as React from "react";
 import { useState } from "react";
@@ -104,13 +104,6 @@ function getToolResultBlocks(message: TamboThreadMessage) {
     (block): block is TamboThreadMessage["content"][number] & { type: "tool_result" } =>
       block.type === "tool_result",
   );
-}
-
-/**
- * Check if a message has any tool calls
- */
-function hasToolCalls(message: TamboThreadMessage): boolean {
-  return getToolUseBlocks(message).length > 0;
 }
 
 // --- Sub-Components ---

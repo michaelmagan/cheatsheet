@@ -80,7 +80,6 @@ const messageInputVariants = cva("w-full", {
  * @property {function} handleSubmit - Function to handle form submission
  * @property {boolean} isPending - Whether a submission is in progress
  * @property {Error|null} error - Any error from the submission
- * @property {string|undefined} contextKey - The thread context key
  * @property {HTMLTextAreaElement|null} textareaRef - Reference to the textarea element
  * @property {string | null} submitError - Error from the submission
  * @property {function} setSubmitError - Function to set the submission error
@@ -94,7 +93,6 @@ interface MessageInputContextValue {
   handleSubmit: (e: React.FormEvent) => Promise<void>;
   isPending: boolean;
   error: Error | null;
-  contextKey?: string;
   textareaRef: React.RefObject<HTMLTextAreaElement>;
   submitError: string | null;
   setSubmitError: React.Dispatch<React.SetStateAction<string | null>>;
@@ -132,8 +130,6 @@ const useMessageInputContext = () => {
  */
 export interface MessageInputProps
   extends React.HTMLAttributes<HTMLFormElement> {
-  /** The context key identifying which thread to send messages to. */
-  contextKey?: string;
   /** Optional styling variant for the input container. */
   variant?: VariantProps<typeof messageInputVariants>["variant"];
   /** Optional ref to forward to the textarea element. */
@@ -148,7 +144,7 @@ export interface MessageInputProps
  * @component MessageInput
  * @example
  * ```tsx
- * <MessageInput contextKey="my-thread" variant="solid">
+ * <MessageInput variant="solid">
  *   <MessageInput.Textarea />
  *   <MessageInput.SubmitButton />
  *   <MessageInput.Error />
@@ -156,12 +152,11 @@ export interface MessageInputProps
  * ```
  */
 const MessageInput = React.forwardRef<HTMLFormElement, MessageInputProps>(
-  ({ children, className, contextKey, variant, ...props }, ref) => {
+  ({ children, className, variant, ...props }, ref) => {
     return (
       <MessageInputInternal
         ref={ref}
         className={className}
-        contextKey={contextKey}
         variant={variant}
         {...props}
       >
@@ -178,7 +173,7 @@ MessageInput.displayName = "MessageInput";
 const MessageInputInternal = React.forwardRef<
   HTMLFormElement,
   MessageInputProps
->(({ children, className, contextKey, variant, inputRef, ...props }, ref) => {
+>(({ children, className, variant, inputRef, ...props }, ref) => {
   const {
     value,
     setValue,
@@ -327,7 +322,6 @@ const MessageInputInternal = React.forwardRef<
       handleSubmit,
       isPending: isPending ?? isSubmitting,
       error,
-      contextKey,
       textareaRef: inputRef ?? textareaRef,
       submitError,
       setSubmitError,
@@ -342,7 +336,6 @@ const MessageInputInternal = React.forwardRef<
       isPending,
       isSubmitting,
       error,
-      contextKey,
       inputRef,
       textareaRef,
       submitError,
