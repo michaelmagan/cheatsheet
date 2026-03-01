@@ -37,7 +37,19 @@ interface BooleanFieldSchema extends BaseFieldSchema {
   type: "boolean";
 }
 
-type FieldSchema = StringFieldSchema | NumberFieldSchema | BooleanFieldSchema;
+interface ArrayFieldSchema {
+  type: "array";
+  title?: string;
+  description?: string;
+  default?: unknown;
+  minItems?: number;
+  maxItems?: number;
+  items:
+    | { type: "string"; enum: string[] }
+    | { anyOf: { const: string; title: string }[] };
+}
+
+type FieldSchema = StringFieldSchema | NumberFieldSchema | BooleanFieldSchema | ArrayFieldSchema;
 
 /**
  * Props for individual field components
@@ -277,6 +289,61 @@ const NumberField: React.FC<FieldProps> = ({
 };
 
 /**
+ * Array field component - renders multi-select checkboxes for enum arrays
+ */
+const ArrayField: React.FC<FieldProps> = ({
+  name,
+  schema,
+  value,
+  onChange,
+  required,
+}) => {
+  const arraySchema = schema as ArrayFieldSchema;
+  const selectedValues = (Array.isArray(value) ? value : []) as string[];
+  const items = arraySchema.items;
+  const options: { value: string; label: string }[] =
+    "enum" in items
+      ? items.enum.map((v) => ({ value: v, label: v }))
+      : "anyOf" in items
+        ? items.anyOf.map((v) => ({ value: v.const, label: v.title }))
+        : [];
+
+  const toggleOption = (optionValue: string) => {
+    if (selectedValues.includes(optionValue)) {
+      onChange(selectedValues.filter((v) => v !== optionValue));
+    } else {
+      onChange([...selectedValues, optionValue]);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium text-foreground">
+        {schema.description ?? name}
+        {required && <span className="text-destructive ml-1">*</span>}
+      </label>
+      <div className="flex flex-wrap gap-2">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => toggleOption(option.value)}
+            className={cn(
+              "px-3 py-1.5 rounded-lg border text-sm transition-colors",
+              selectedValues.includes(option.value)
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background border-border hover:bg-muted",
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/**
  * Generic field component that renders the appropriate input based on schema type
  */
 const Field: React.FC<FieldProps> = (props) => {
@@ -296,6 +363,10 @@ const Field: React.FC<FieldProps> = (props) => {
 
   if (schema.type === "number" || schema.type === "integer") {
     return <NumberField {...props} />;
+  }
+
+  if (schema.type === "array") {
+    return <ArrayField {...props} />;
   }
 
   return null;

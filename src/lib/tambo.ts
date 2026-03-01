@@ -8,8 +8,7 @@
  * Read more about Tambo at https://tambo.co/docs
  */
 
-import type { TamboComponent } from "@tambo-ai/react";
-import { TamboTool } from "@tambo-ai/react";
+import type { TamboComponent, TamboTool } from "@tambo-ai/react";
 import { spreadsheetTools, getSpreadsheetInfoTool } from "@/tools/spreadsheet-tools";
 import { validateSpreadsheetFormulaTool, getSpreadsheetErrorsTool } from "@/tools/spreadsheet-validation-tools";
 import { tabTools } from "@/tools/tab-tools";

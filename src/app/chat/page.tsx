@@ -26,13 +26,15 @@ export default function Home() {
         tamboUrl={process.env.NEXT_PUBLIC_TAMBO_URL!}
         components={components}
         tools={tools}
+        mcpServers={mcpServers}
+        userKey={contextKey ?? undefined}
         contextHelpers={{
           spreadsheet: spreadsheetContextHelper,
           selection: spreadsheetSelectionContextHelper,
           tabs: tabContextHelper,
         }}
       >
-        <TamboMcpProvider mcpServers={mcpServers}>
+        <TamboMcpProvider>
           {/* Mobile toggle button */}
           <button
             onClick={() => setShowSpreadsheet(!showSpreadsheet)}
@@ -45,7 +47,7 @@ export default function Home() {
           <div className="flex h-full overflow-hidden">
             {/* Chat panel - hidden on mobile when spreadsheet is shown */}
             <div className={`${showSpreadsheet ? 'hidden md:flex' : 'flex'} flex-1 overflow-hidden`}>
-              {contextKey ? <MessageThreadFull contextKey={contextKey} /> : null}
+              {contextKey ? <MessageThreadFull /> : null}
             </div>
 
             {/* Spreadsheet panel - responsive width and visibility */}

@@ -356,15 +356,15 @@ async function validateSpreadsheetFormula(args: { formula: string }): Promise<Va
  * @param range - Optional range in A1 notation (e.g., "B2:E10"). If omitted, scans entire sheet.
  * @returns Object with error count, error list, and summary message
  */
-async function getSpreadsheetErrors(range?: string) {
+async function getSpreadsheetErrors(args: { range?: string }) {
   try {
     const { sheet } = getActiveSheetSnapshot();
     const workbook = ensureWorkbook();
     const sheetId = ensureActiveSheetId();
 
     // Determine scan range
-    const scanRange = range
-      ? parseRangeReference(range)
+    const scanRange = args.range
+      ? parseRangeReference(args.range)
       : {
           start: { row: 0, col: 0 },
           end: {
@@ -395,7 +395,7 @@ async function getSpreadsheetErrors(range?: string) {
       }
     }
 
-    const rangeLabel = range || "entire sheet";
+    const rangeLabel = args.range || "entire sheet";
 
     return {
       success: true,
@@ -439,16 +439,12 @@ export const validateSpreadsheetFormulaTool = {
   name: "validateSpreadsheetFormula",
   description: "Validate a spreadsheet formula before execution by checking function recognition, syntax, and reference format, with suggestions for typos.",
   tool: validateSpreadsheetFormula,
-  toolSchema: z
-    .function()
-    .args(
-      z.object({
-        formula: z.string().describe(
-          "The formula to validate, including the leading '=' sign (e.g., '=SUM(A1:A10)')"
-        ),
-      })
-    )
-    .returns(validationResultSchema),
+  inputSchema: z.object({
+    formula: z.string().describe(
+      "The formula to validate, including the leading '=' sign (e.g., '=SUM(A1:A10)')"
+    ),
+  }),
+  outputSchema: validationResultSchema,
 };
 
 /**
@@ -458,34 +454,30 @@ export const getSpreadsheetErrorsTool = {
   name: "getSpreadsheetErrors",
   description: "Scan the active sheet for cells containing formula errors (e.g., #DIV/0!, #VALUE!, #REF!, #NAME?). Optionally accepts a range in A1 notation.",
   tool: getSpreadsheetErrors,
-  toolSchema: z
-    .function()
-    .args(
-      z
-        .string()
-        .optional()
-        .describe("Range to scan in A1 notation (e.g., 'B2:E10'). If omitted, scans entire sheet.")
-    )
-    .returns(
-      z.object({
-        success: z.boolean(),
-        errorCount: z.number().optional().describe("Total number of errors found"),
-        errors: z
-          .array(
-            z.object({
-              address: z.string().describe("Cell address (e.g., 'B5')"),
-              error: z.string().describe("Error code (e.g., '#DIV/0!')"),
-              formula: z.string().nullable().describe("Formula that caused the error, if present"),
-            })
-          )
-          .optional()
-          .describe("Array of error details (omitted if no errors found)"),
-        range: z.string().optional().describe("Range that was scanned"),
-        truncated: z.boolean().optional().describe("True if results limited to first 50 errors"),
-        message: z.string().optional().describe("Human-readable summary"),
-        error: z.string().optional().describe("Error message if operation failed"),
-      })
-    ),
+  inputSchema: z.object({
+    range: z
+      .string()
+      .optional()
+      .describe("Range to scan in A1 notation (e.g., 'B2:E10'). If omitted, scans entire sheet."),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    errorCount: z.number().optional().describe("Total number of errors found"),
+    errors: z
+      .array(
+        z.object({
+          address: z.string().describe("Cell address (e.g., 'B5')"),
+          error: z.string().describe("Error code (e.g., '#DIV/0!')"),
+          formula: z.string().nullable().describe("Formula that caused the error, if present"),
+        })
+      )
+      .optional()
+      .describe("Array of error details (omitted if no errors found)"),
+    range: z.string().optional().describe("Range that was scanned"),
+    truncated: z.boolean().optional().describe("True if results limited to first 50 errors"),
+    message: z.string().optional().describe("Human-readable summary"),
+    error: z.string().optional().describe("Error message if operation failed"),
+  }),
 };
 
 export const spreadsheetValidationTools = [

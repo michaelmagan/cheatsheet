@@ -6,7 +6,7 @@ import {
   TooltipProvider,
 } from "@/components/tambo/suggestions-tooltip";
 import { cn } from "@/lib/utils";
-import type { Suggestion, TamboThread } from "@tambo-ai/react";
+import type { Suggestion } from "@tambo-ai/react";
 import { useTambo, useTamboSuggestions } from "@tambo-ai/react";
 import { Loader2Icon } from "lucide-react";
 import * as React from "react";
@@ -27,7 +27,8 @@ interface MessageSuggestionsContextValue {
   accept: (options: { suggestion: Suggestion }) => void;
   isGenerating: boolean;
   error: Error | null;
-  thread: TamboThread;
+  messages: import("@tambo-ai/react").TamboThreadMessage[];
+  isIdle: boolean;
   isMac: boolean;
 }
 
@@ -94,24 +95,25 @@ const MessageSuggestions = React.forwardRef<
     },
     ref,
   ) => {
-    const { thread } = useTambo();
+    const { messages, isIdle } = useTambo();
     const {
       suggestions: generatedSuggestions,
       selectedSuggestionId,
       accept,
-      generateResult: { isPending: isGenerating, error },
+      isGenerating,
+      error,
     } = useTamboSuggestions({ maxSuggestions });
 
     // Combine initial and generated suggestions, but only use initial ones when thread is empty
     const suggestions = React.useMemo(() => {
       // Only use pre-seeded suggestions if thread is empty
-      if (!thread?.messages?.length && initialSuggestions.length > 0) {
+      if (!messages?.length && initialSuggestions.length > 0) {
         return initialSuggestions.slice(0, maxSuggestions);
       }
       // Otherwise use generated suggestions
       return generatedSuggestions;
     }, [
-      thread?.messages?.length,
+      messages?.length,
       generatedSuggestions,
       initialSuggestions,
       maxSuggestions,
@@ -131,7 +133,8 @@ const MessageSuggestions = React.forwardRef<
         accept,
         isGenerating,
         error,
-        thread,
+        messages,
+        isIdle,
         isMac,
       }),
       [
@@ -140,14 +143,15 @@ const MessageSuggestions = React.forwardRef<
         accept,
         isGenerating,
         error,
-        thread,
+        messages,
+        isIdle,
         isMac,
       ],
     );
 
     // Find the last AI message
-    const lastAiMessage = thread?.messages
-      ? [...thread.messages].reverse().find((msg) => msg.role === "assistant")
+    const lastAiMessage = messages?.length
+      ? [...messages].reverse().find((msg) => msg.role === "assistant")
       : null;
 
     // When a new AI message appears, update the reference
@@ -196,7 +200,7 @@ const MessageSuggestions = React.forwardRef<
     }, [suggestions, accept, isMac]);
 
     // If we have no messages yet and no initial suggestions, render nothing
-    if (!thread?.messages?.length && initialSuggestions.length === 0) {
+    if (!messages?.length && initialSuggestions.length === 0) {
       return null;
     }
 
@@ -241,16 +245,14 @@ const MessageSuggestionsStatus = React.forwardRef<
   HTMLDivElement,
   MessageSuggestionsStatusProps
 >(({ className, ...props }, ref) => {
-  const { error, isGenerating, thread } = useMessageSuggestionsContext();
+  const { error, isGenerating, isIdle } = useMessageSuggestionsContext();
 
   return (
     <div
       ref={ref}
       className={cn(
         "p-2 rounded-md text-sm bg-transparent",
-        !error &&
-          !isGenerating &&
-          (!thread?.generationStage || thread.generationStage === "COMPLETE")
+        !error && !isGenerating && isIdle
           ? "p-0 min-h-0 mb-0"
           : "",
         className,
@@ -258,8 +260,8 @@ const MessageSuggestionsStatus = React.forwardRef<
       data-slot="message-suggestions-status"
       {...props}
     >
-      {/* Error state */}
-      {error && (
+      {/* Error state — suppress transient 404s for ephemeral messages (SDK timing issue) */}
+      {error && !error.message?.includes("ephemeral") && (
         <div className="p-2 rounded-md text-sm bg-red-50 text-red-500">
           <p>{error.message}</p>
         </div>
@@ -267,7 +269,7 @@ const MessageSuggestionsStatus = React.forwardRef<
 
       {/* Always render a container for generation stage to prevent layout shifts */}
       <div className="generation-stage-container">
-        {thread?.generationStage && thread.generationStage !== "COMPLETE" ? (
+        {!isIdle ? (
           <MessageGenerationStage />
         ) : isGenerating ? (
           <div className="flex items-center gap-2 text-muted-foreground">

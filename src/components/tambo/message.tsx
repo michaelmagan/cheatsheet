@@ -9,10 +9,9 @@ import {
 import { cn } from "@/lib/utils";
 import type { TamboThreadMessage } from "@tambo-ai/react";
 import { useTambo } from "@tambo-ai/react";
-import type TamboAI from "@tambo-ai/typescript-sdk";
 import { cva, type VariantProps } from "class-variance-authority";
 import stringify from "json-stringify-pretty-compact";
-import { Check, ChevronDown, ExternalLink, Loader2, X } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, Loader2 } from "lucide-react";
 import Image from "next/image";
 import * as React from "react";
 import { useState } from "react";
@@ -78,15 +77,33 @@ const useMessageContext = () => {
 };
 
 /**
- * Get the tool call request from the message, or the component tool call request
- *
- * @param message - The message to get the tool call request from
- * @returns The tool call request
+ * Extract tool use content blocks from a message
  */
-export function getToolCallRequest(
-  message: TamboThreadMessage,
-): TamboAI.ToolCallRequest | undefined {
-  return message.toolCallRequest ?? message.component?.toolCallRequest;
+function getToolUseBlocks(message: TamboThreadMessage) {
+  return (message.content ?? []).filter(
+    (block): block is TamboThreadMessage["content"][number] & { type: "tool_use" } =>
+      block.type === "tool_use",
+  );
+}
+
+/**
+ * Extract component content blocks from a message
+ */
+function getComponentBlocks(message: TamboThreadMessage) {
+  return (message.content ?? []).filter(
+    (block): block is TamboThreadMessage["content"][number] & { type: "component" } =>
+      block.type === "component",
+  );
+}
+
+/**
+ * Extract tool result content blocks from a message
+ */
+function getToolResultBlocks(message: TamboThreadMessage) {
+  return (message.content ?? []).filter(
+    (block): block is TamboThreadMessage["content"][number] & { type: "tool_result" } =>
+      block.type === "tool_result",
+  );
 }
 
 // --- Sub-Components ---
@@ -130,11 +147,6 @@ const Message = React.forwardRef<HTMLDivElement, MessageProps>(
       () => ({ role, variant, isLoading, message }),
       [role, variant, isLoading, message],
     );
-
-    // Don't render tool response messages as they're shown in tool call dropdowns
-    if (message.role === "tool") {
-      return null;
-    }
 
     return (
       <MessageContext.Provider value={contextValue}>
@@ -295,9 +307,6 @@ const MessageContent = React.forwardRef<HTMLDivElement, MessageContentProps>(
             ) : (
               safeContent
             )}
-            {message.isCancelled && (
-              <span className="text-muted-foreground text-xs">cancelled</span>
-            )}
           </div>
         )}
       </div>
@@ -316,132 +325,112 @@ export interface ToolcallInfoProps
   markdown?: boolean;
 }
 
-function getToolStatusMessage(
-  message: TamboThreadMessage,
-  isLoading: boolean | undefined,
-) {
-  if (message.role !== "assistant" || !getToolCallRequest(message)) {
-    return null;
-  }
-
-  const toolCallMessage = isLoading
-    ? `Calling ${getToolCallRequest(message)?.toolName ?? "tool"}`
-    : `Called ${getToolCallRequest(message)?.toolName ?? "tool"}`;
-  const toolStatusMessage = isLoading
-    ? message.component?.statusMessage
-    : message.component?.completionStatusMessage;
-  return toolStatusMessage ?? toolCallMessage;
-}
-
 /**
  * Displays tool call information in a collapsible dropdown.
- * Shows tool name, parameters, and associated tool response.
+ * Shows tool name, parameters, and associated tool result.
+ * In the new content block model, tool_use and tool_result blocks are
+ * in the same message's content array.
  * @component ToolcallInfo
  */
 const ToolcallInfo = React.forwardRef<HTMLDivElement, ToolcallInfoProps>(
   ({ className, markdown = true, ...props }, ref) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const { message, isLoading } = useMessageContext();
-    const { thread } = useTambo();
     const toolDetailsId = React.useId();
 
-    const associatedToolResponse = React.useMemo(() => {
-      if (!thread?.messages) return null;
-      const currentMessageIndex = thread.messages.findIndex(
-        (m: TamboThreadMessage) => m.id === message.id,
-      );
-      if (currentMessageIndex === -1) return null;
-      for (let i = currentMessageIndex + 1; i < thread.messages.length; i++) {
-        const nextMessage = thread.messages[i];
-        if (nextMessage.role === "tool") {
-          return nextMessage;
-        }
-        if (
-          nextMessage.role === "assistant" &&
-          getToolCallRequest(nextMessage)
-        ) {
-          break;
-        }
-      }
-      return null;
-    }, [message, thread?.messages]);
+    const toolUseBlocks = getToolUseBlocks(message);
+    const toolResultBlocks = getToolResultBlocks(message);
 
-    if (message.role !== "assistant" || !getToolCallRequest(message)) {
+    if (message.role !== "assistant" || toolUseBlocks.length === 0) {
       return null;
     }
-
-    const toolCallRequest: TamboAI.ToolCallRequest | undefined =
-      getToolCallRequest(message);
-    const hasToolError = message.error;
-
-    const toolStatusMessage = getToolStatusMessage(message, isLoading);
 
     return (
       <div
         ref={ref}
         className={cn(
-          "flex flex-col items-start text-xs opacity-50",
+          "flex flex-col items-start text-xs opacity-50 gap-1",
           className,
         )}
         data-slot="toolcall-info"
         {...props}
       >
-        <div className="flex flex-col w-full">
-          <button
-            type="button"
-            aria-expanded={isExpanded}
-            aria-controls={toolDetailsId}
-            onClick={() => setIsExpanded(!isExpanded)}
-            className={cn(
-              "flex items-center gap-1 cursor-pointer hover:bg-gray-100 rounded-md p-1 select-none w-fit",
-            )}
-          >
-            {hasToolError ? (
-              <X className="w-3 h-3 text-bold text-red-500" />
-            ) : isLoading ? (
-              <Loader2 className="w-3 h-3 text-muted-foreground text-bold animate-spin" />
-            ) : (
-              <Check className="w-3 h-3 text-bold text-green-500" />
-            )}
-            <span>{toolStatusMessage}</span>
-            <ChevronDown
-              className={cn(
-                "w-3 h-3 transition-transform duration-200",
-                !isExpanded && "-rotate-90",
-              )}
-            />
-          </button>
-          <div
-            id={toolDetailsId}
-            className={cn(
-              "flex flex-col gap-1 p-3 pl-7 overflow-auto transition-[max-height,opacity,padding] duration-300 w-full truncate",
-              isExpanded ? "max-h-auto opacity-100" : "max-h-0 opacity-0 p-0",
-            )}
-          >
-            <span className="whitespace-pre-wrap pl-2">
-              tool: {toolCallRequest?.toolName}
-            </span>
-            <span className="whitespace-pre-wrap pl-2">
-              parameters:{"\n"}
-              {stringify(keyifyParameters(toolCallRequest?.parameters))}
-            </span>
-            <SamplingSubThread parentMessageId={message.id} />
-            {associatedToolResponse && (
-              <div className="pl-2">
-                <span className="whitespace-pre-wrap">result:</span>
-                <div>
-                  {!associatedToolResponse.content ? (
-                    <span className="text-muted-foreground italic">
-                      Empty response
-                    </span>
-                  ) : (
-                    formatToolResult(associatedToolResponse.content, markdown)
+        {toolUseBlocks.map((toolUse) => {
+          const toolResult = toolResultBlocks.find(
+            (r) => "tool_use_id" in r && r.tool_use_id === toolUse.id,
+          );
+          const hasCompleted = (toolUse as { hasCompleted?: boolean }).hasCompleted ?? !!toolResult;
+          const statusMessage =
+            (toolUse as { statusMessage?: string }).statusMessage ??
+            (hasCompleted
+              ? `Called ${toolUse.name}`
+              : `Calling ${toolUse.name}`);
+          const isToolLoading = isLoading && !hasCompleted;
+
+          return (
+            <div key={toolUse.id} className="flex flex-col w-full">
+              <button
+                type="button"
+                aria-expanded={isExpanded}
+                aria-controls={`${toolDetailsId}-${toolUse.id}`}
+                onClick={() => setIsExpanded(!isExpanded)}
+                className={cn(
+                  "flex items-center gap-1 cursor-pointer hover:bg-gray-100 rounded-md p-1 select-none w-fit",
+                )}
+              >
+                {isToolLoading ? (
+                  <Loader2 className="w-3 h-3 text-muted-foreground text-bold animate-spin" />
+                ) : (
+                  <Check className="w-3 h-3 text-bold text-green-500" />
+                )}
+                <span>{statusMessage}</span>
+                <ChevronDown
+                  className={cn(
+                    "w-3 h-3 transition-transform duration-200",
+                    !isExpanded && "-rotate-90",
                   )}
-                </div>
+                />
+              </button>
+              <div
+                id={`${toolDetailsId}-${toolUse.id}`}
+                className={cn(
+                  "flex flex-col gap-1 p-3 pl-7 overflow-auto transition-[max-height,opacity,padding] duration-300 w-full truncate",
+                  isExpanded
+                    ? "max-h-auto opacity-100"
+                    : "max-h-0 opacity-0 p-0",
+                )}
+              >
+                <span className="whitespace-pre-wrap pl-2">
+                  tool: {toolUse.name}
+                </span>
+                <span className="whitespace-pre-wrap pl-2">
+                  parameters:{"\n"}
+                  {stringify(toolUse.input as Record<string, unknown>)}
+                </span>
+                <SamplingSubThread parentMessageId={message.id} />
+                {toolResult && "content" in toolResult && (
+                  <div className="pl-2">
+                    <span className="whitespace-pre-wrap">result:</span>
+                    <div>
+                      {!toolResult.content ? (
+                        <span className="text-muted-foreground italic">
+                          Empty response
+                        </span>
+                      ) : (
+                        formatToolResult(
+                          typeof toolResult.content === "string"
+                            ? [{ type: "text" as const, text: toolResult.content }]
+                            : (toolResult.content as TamboThreadMessage["content"]),
+                          markdown,
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          );
+        })}
       </div>
     );
   },
@@ -461,15 +450,15 @@ const SamplingSubThread = ({
   parentMessageId: string;
   titleText?: string;
 }) => {
-  const { thread } = useTambo();
+  const { messages } = useTambo();
   const [isExpanded, setIsExpanded] = useState(false);
   const samplingDetailsId = React.useId();
 
   const childMessages = React.useMemo(() => {
-    return thread?.messages?.filter(
+    return messages?.filter(
       (m: TamboThreadMessage) => m.parentMessageId === parentMessageId,
     );
-  }, [thread?.messages, parentMessageId]);
+  }, [messages, parentMessageId]);
 
   if (!childMessages?.length) return null;
 
@@ -653,13 +642,6 @@ const ReasoningInfo = React.forwardRef<HTMLDivElement, ReasoningInfoProps>(
 
 ReasoningInfo.displayName = "ReasoningInfo";
 
-function keyifyParameters(parameters: TamboAI.ToolCallParameter[] | undefined) {
-  if (!parameters) return;
-  return Object.fromEntries(
-    parameters.map((p) => [p.parameterName, p.parameterValue]),
-  );
-}
-
 /**
  * Formats the reasoning duration in a human-readable format
  * @param durationMS - The duration in milliseconds
@@ -752,6 +734,12 @@ const MessageRenderedComponentArea = React.forwardRef<
   const { message, role } = useMessageContext();
   const [canvasExists, setCanvasExists] = React.useState(false);
 
+  // Extract rendered components from content blocks
+  const componentBlocks = getComponentBlocks(message);
+  const renderedComponents = componentBlocks
+    .map((block) => (block as { renderedComponent?: React.ReactElement }).renderedComponent)
+    .filter(Boolean);
+
   // Check if canvas exists on mount and window resize
   React.useEffect(() => {
     const checkCanvasExists = () => {
@@ -759,23 +747,14 @@ const MessageRenderedComponentArea = React.forwardRef<
       setCanvasExists(!!canvas);
     };
 
-    // Check on mount
     checkCanvasExists();
-
-    // Set up resize listener
     window.addEventListener("resize", checkCanvasExists);
-
-    // Clean up
     return () => {
       window.removeEventListener("resize", checkCanvasExists);
     };
   }, []);
 
-  if (
-    !message.renderedComponent ||
-    role !== "assistant" ||
-    message.isCancelled
-  ) {
+  if (renderedComponents.length === 0 || role !== "assistant") {
     return null;
   }
 
@@ -787,31 +766,35 @@ const MessageRenderedComponentArea = React.forwardRef<
       {...props}
     >
       {children ??
-        (canvasExists ? (
-          <div className="flex justify-start pl-4">
-            <button
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  window.dispatchEvent(
-                    new CustomEvent("tambo:showComponent", {
-                      detail: {
-                        messageId: message.id,
-                        component: message.renderedComponent,
-                      },
-                    }),
-                  );
-                }
-              }}
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors duration-200 cursor-pointer group"
-              aria-label="View component in canvas"
-            >
-              View component
-              <ExternalLink className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ) : (
-          <div className="w-full pt-2 px-2">{message.renderedComponent}</div>
-        ))}
+        renderedComponents.map((renderedComponent, index) =>
+          canvasExists ? (
+            <div key={index} className="flex justify-start pl-4">
+              <button
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                      new CustomEvent("tambo:showComponent", {
+                        detail: {
+                          messageId: message.id,
+                          component: renderedComponent,
+                        },
+                      }),
+                    );
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors duration-200 cursor-pointer group"
+                aria-label="View component in canvas"
+              >
+                View component
+                <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div key={index} className="w-full pt-2 px-2">
+              {renderedComponent}
+            </div>
+          ),
+        )}
     </div>
   );
 });
