@@ -3,9 +3,53 @@ import * as React from "react";
 import { useEffect, useState } from "react";
 
 /**
- * Custom hook to merge multiple refs into one callback ref
- * @param refs - Array of refs to merge
- * @returns A callback ref that updates all provided refs
+ * Converts message content to markdown format for rendering with streamdown.
+ * Handles text and resource content parts, converting resources to markdown links
+ * with a custom URL scheme that will be rendered as Mention components.
+ *
+ * @param content - The message content (string, element, array, etc.)
+ * @returns A markdown string ready for streamdown rendering
+ */
+export function convertContentToMarkdown(
+  content: TamboThreadMessage["content"] | React.ReactNode | undefined | null,
+): string {
+  if (!content) return "";
+  if (typeof content === "string") return content;
+  if (React.isValidElement(content)) {
+    // For React elements, we can't convert to markdown - this shouldn't happen
+    // in normal flow, but keep backward compatibility
+    return "";
+  }
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const item of content) {
+      if (item?.type === "text") {
+        parts.push(item.text ?? "");
+      } else if (item?.type === "resource") {
+        const resource = item.resource;
+        const uri = resource?.uri;
+        if (uri) {
+          // Use resource name for display, fallback to URI if no name
+          const displayName = resource?.name ?? uri;
+          // Use a custom protocol that looks more standard to avoid blocking
+          // Format: tambo-resource://<encoded-uri>
+          // We'll detect this in the link component and decode the URI
+          const encodedUri = encodeURIComponent(uri);
+          parts.push(`[${displayName}](tambo-resource://${encodedUri})`);
+        }
+      }
+    }
+    return parts.join(" ");
+  }
+  return "";
+}
+
+/**
+ * Merges multiple refs into a single callback ref.
+ *
+ * In React 19, callback refs may return cleanup functions; this hook fans out
+ * both assignments and cleanups to all provided refs and tracks the last
+ * cleanup so it runs when the instance changes.
  */
 export function useMergeRefs<Instance>(
   ...refs: (React.Ref<Instance> | undefined)[]
@@ -38,7 +82,7 @@ export function useMergeRefs<Instance>(
       cleanups.forEach((refCleanup) => refCleanup?.());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...refs]);
+  }, refs);
 
   return React.useMemo(() => {
     if (refs.every((ref) => ref == null)) {
@@ -58,7 +102,7 @@ export function useMergeRefs<Instance>(
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...refs]);
+  }, [refEffect, ...refs]);
 }
 /**
  * Custom hook to detect canvas space presence and position
@@ -127,18 +171,26 @@ export function usePositioning(
   // If panel has right class, history should be on right
   // If canvas is on left, history should be on right
   // Otherwise, history should be on left
-  const historyPosition: "left" | "right" = isRightClass
-    ? "right"
-    : hasCanvasSpace && canvasIsOnLeft
-      ? "right"
-      : "left";
+  let historyPosition: "left" | "right";
+  if (isRightClass) {
+    historyPosition = "right";
+  } else if (hasCanvasSpace && canvasIsOnLeft) {
+    historyPosition = "right";
+  } else {
+    historyPosition = "left";
+  }
 
   return { isLeftPanel, historyPosition };
 }
 
 /**
  * Converts message content into a safely renderable format.
- * Primarily joins text blocks from arrays into a single string.
+ * Handles text, resource references, and other content types.
+ *
+ * @deprecated This function is deprecated. Message rendering now uses a private
+ * `convertContentToMarkdown()` function within the message component. This function
+ * is kept for backward compatibility since it's exposed in the SDK.
+ *
  * @param content - The message content (string, element, array, etc.)
  * @returns A renderable string or React element.
  */
@@ -149,10 +201,20 @@ export function getSafeContent(
   if (typeof content === "string") return content;
   if (React.isValidElement(content)) return content; // Pass elements through
   if (Array.isArray(content)) {
-    // Filter out non-text items and join text
-    return content
-      .map((item) => (item?.type === "text" ? (item.text ?? "") : ""))
-      .join("");
+    // Map content parts to strings, including resource references
+    const parts: string[] = [];
+    for (const item of content) {
+      if (item?.type === "text") {
+        parts.push(item.text ?? "");
+      } else if (item?.type === "resource") {
+        // Format resource references as @uri (uri already contains serverKey prefix if applicable)
+        const uri = item.resource?.uri;
+        if (uri) {
+          parts.push(`@${uri}`);
+        }
+      }
+    }
+    return parts.join(" ");
   }
   // Handle potential edge cases or unknown types
   // console.warn("getSafeContent encountered unknown content type:", content);

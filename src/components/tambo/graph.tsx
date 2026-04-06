@@ -1,50 +1,131 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { cva, type VariantProps } from "class-variance-authority";
+import { cva } from "class-variance-authority";
 import * as React from "react";
-import { useMemo } from "react";
 import * as RechartsCore from "recharts";
-import { z } from "zod";
-import { useSpreadsheetData } from "@/hooks/useSpreadsheetData";
-import { useMultipleSpreadsheetData } from "@/hooks/useMultipleSpreadsheetData";
-import {
-  extractNumericValues,
-  extractLabels,
-  transformToRechartsData,
-  getHeaderCellReference,
-} from "@/lib/graph-data-utils";
-import { useFortuneSheet } from "@/lib/fortune-sheet-store";
-import { useTamboStreamStatus } from "@tambo-ai/react";
+import { z } from "zod/v3";
 
 /**
- * Represents a graph with spreadsheet data source
- * @property {string} type - Type of graph to render
- * @property {object} spreadsheetData - Configuration for fetching data from spreadsheet
+ * Type for graph variant
  */
+type GraphVariant = "default" | "solid" | "bordered";
 
+/**
+ * Type for graph size
+ */
+type GraphSize = "default" | "sm" | "lg";
+
+/**
+ * Variants for the Graph component
+ */
+export const graphVariants = cva(
+  "w-full rounded-lg overflow-hidden transition-all duration-200",
+  {
+    variants: {
+      variant: {
+        default: "bg-background",
+        solid: [
+          "shadow-lg shadow-zinc-900/10 dark:shadow-zinc-900/20",
+          "bg-muted",
+        ].join(" "),
+        bordered: ["border-2", "border-border"].join(" "),
+      },
+      size: {
+        default: "h-64",
+        sm: "h-48",
+        lg: "h-96",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  },
+);
+
+/**
+ * Props for the error boundary
+ */
+interface GraphErrorBoundaryProps {
+  children: React.ReactNode;
+  className?: string;
+  variant?: GraphVariant;
+  size?: GraphSize;
+}
+
+/**
+ * Error boundary for catching rendering errors in the Graph component
+ */
+class GraphErrorBoundary extends React.Component<
+  GraphErrorBoundaryProps,
+  { hasError: boolean; error?: Error }
+> {
+  constructor(props: GraphErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("Error rendering chart:", error, errorInfo);
+  }
+
+  render(): React.ReactNode {
+    if (this.state.hasError) {
+      return (
+        <div
+          className={cn(
+            graphVariants({
+              variant: this.props.variant,
+              size: this.props.size,
+            }),
+            this.props.className,
+          )}
+        >
+          <div className="p-4 flex items-center justify-center h-full">
+            <div className="text-destructive text-center">
+              <p className="font-medium">Error loading chart</p>
+              <p className="text-sm mt-1">
+                An error occurred while rendering. Please try again.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+/**
+ * Zod schema for GraphData
+ */
+export const graphDataSchema = z.object({
+  type: z.enum(["bar", "line", "pie"]).describe("Type of graph to render"),
+  labels: z.array(z.string()).describe("Labels for the graph"),
+  datasets: z
+    .array(
+      z.object({
+        label: z.string().describe("Label for the dataset"),
+        data: z.array(z.number()).describe("Data points for the dataset"),
+        color: z.string().optional().describe("Optional color for the dataset"),
+      }),
+    )
+    .describe("Data for the graph"),
+});
+
+/**
+ * Zod schema for Graph
+ */
 export const graphSchema = z.object({
-  type: z.enum(["bar", "line", "pie", "stacked-bar", "stacked-area", "combo"]).describe("Type of graph to render"),
-  spreadsheetData: z
-    .object({
-      tabId: z.string().describe("ID of the spreadsheet tab to read from"),
-      labelsRange: z
-        .string()
-        .describe("A1 notation range for labels (e.g., 'A1:A5')"),
-      dataSets: z
-        .array(
-          z.object({
-            range: z
-              .string()
-              .describe("A1 notation range for data (e.g., 'B2:B10'). Label will be read from the header cell (row 1) of this column"),
-            color: z.string().optional().describe("Optional color for the dataset"),
-            chartType: z.enum(["bar", "line"]).optional().describe("For combo charts: specify 'bar' or 'line' for this dataset (default: bar)"),
-            yAxisId: z.enum(["left", "right"]).optional().describe("For multi-axis charts: specify 'left' or 'right' axis (default: left)"),
-          }),
-        )
-        .describe("Array of datasets to display (max 10)"),
-    })
-    .describe("Configuration for fetching data from spreadsheet"),
+  data: graphDataSchema.describe(
+    "Data object containing chart configuration and values",
+  ),
   title: z.string().describe("Title for the chart"),
   showLegend: z
     .boolean()
@@ -58,60 +139,30 @@ export const graphSchema = z.object({
     .enum(["default", "sm", "lg"])
     .optional()
     .describe("Size of the graph"),
+  className: z
+    .string()
+    .optional()
+    .describe("Additional CSS classes for styling"),
 });
 
-// Extend the GraphProps with additional tambo properties
-export interface GraphProps
-  extends Omit<React.HTMLAttributes<HTMLDivElement>, "title" | "size">,
-    Omit<VariantProps<typeof graphVariants>, "size" | "variant"> {
-  /** Type of graph to render */
-  type: "bar" | "line" | "pie" | "stacked-bar" | "stacked-area" | "combo";
-  /** Configuration for fetching data from spreadsheet */
-  spreadsheetData: {
-    tabId: string;
-    labelsRange: string;
-    dataSets: Array<{
-      range: string;
-      color?: string;
-      chartType?: "bar" | "line";
-      yAxisId?: "left" | "right";
-    }>;
-  };
-  /** Optional title for the chart */
-  title?: string;
-  /** Whether to show the legend (default: true) */
-  showLegend?: boolean;
-  /** Visual style variant of the graph */
-  variant?: "default" | "solid" | "bordered";
-  /** Size of the graph */
-  size?: "default" | "sm" | "lg";
-}
+/**
+ * TypeScript type inferred from the Zod schema
+ */
+export type GraphProps = z.infer<typeof graphSchema>;
 
-const graphVariants = cva(
-  "w-full rounded-lg overflow-hidden transition-all duration-200",
-  {
-    variants: {
-      variant: {
-        default: "bg-background",
-        solid: [
-          "shadow-lg shadow-zinc-900/10 dark:shadow-zinc-900/20",
-          "bg-muted",
-        ].join(" "),
-        bordered: ["border-2", "border-border"].join(" "),
-      },
-      size: {
-        default: "h-80",
-        sm: "h-64",
-        lg: "h-[500px]",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
-  },
-);
+/**
+ * TypeScript type inferred from the Zod schema
+ */
+export type GraphDataType = z.infer<typeof graphDataSchema>;
 
+/**
+ * Default colors for the Graph component.
+ *
+ * Color handling: our v4 theme defines CSS variables like `--border`,
+ * `--muted-foreground`, and `--chart-1` as full OKLCH color values in
+ * `globals-v4.css`, so we pass them directly as `var(--token)` to
+ * Recharts/SVG props instead of wrapping them in `hsl()`/`oklch()`.
+ */
 const defaultColors = [
   "hsl(220, 100%, 62%)", // Blue
   "hsl(160, 82%, 47%)", // Green
@@ -121,19 +172,17 @@ const defaultColors = [
 
 /**
  * A component that renders various types of charts using Recharts
- * Fetches data from spreadsheet tabs using the useSpreadsheetData hook
  * @component
  * @example
  * ```tsx
  * <Graph
- *   type="bar"
- *   spreadsheetData={{
- *     tabId: "tab-123",
- *     labelsRange: "A2:A6",
- *     dataSets: [
- *       { range: "B2:B6" },  // Label from B1
- *       { range: "C2:C6", color: "#4f46e5" }  // Label from C1
- *     ]
+ *   data={{
+ *     type: "bar",
+ *     labels: ["Jan", "Feb", "Mar"],
+ *     datasets: [{
+ *       label: "Sales",
+ *       data: [100, 200, 300]
+ *     }]
  *   }}
  *   title="Monthly Sales"
  *   variant="solid"
@@ -144,207 +193,11 @@ const defaultColors = [
  */
 export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
   (
-    {
-      className,
-      variant,
-      size,
-      type,
-      spreadsheetData,
-      title,
-      showLegend = true,
-      ...props
-    },
+    { className, variant, size, data, title, showLegend = true, ...props },
     ref,
   ) => {
-    // Component-specific streaming status - tracks this component's props
-    const { streamStatus } = useTamboStreamStatus<GraphProps>();
-
-    const isStreaming = streamStatus.isPending || streamStatus.isStreaming;
-
-    // Safe destructuring with defaults for streaming props
-    const {
-      tabId = "",
-      labelsRange = "A1",
-      dataSets = []
-    } = spreadsheetData || {};
-
-    const { sheets, activeSheetId: activeTabId } = useFortuneSheet();
-
-    // Fetch labels using single hook
-    const labelsData = useSpreadsheetData({ tabId, range: labelsRange });
-
-    // Fetch all datasets with a single hook call (supports up to 10 datasets)
-    const { data: dataSetResults } = useMultipleSpreadsheetData(
-      tabId,
-      dataSets.map(ds => ds.range)
-    );
-
-    // Fetch header cells for ALL datasets (labels always come from headers)
-    const headerRanges = dataSets.map(ds => {
-      try {
-        return getHeaderCellReference(ds.range);
-      } catch {
-        return null; // Invalid range format
-      }
-    });
-
-    // Fetch headers for all datasets
-    const { data: headerResults } = useMultipleSpreadsheetData(
-      tabId,
-      headerRanges.filter((h): h is string => h !== null)
-    );
-
-    // Process data using useMemo to avoid cascading renders from useEffect
-    // This MUST come before any conditional returns to comply with Rules of Hooks
-    const { processedData, processedLabels, processingError, isLoading } = useMemo(() => {
-      // Check if any data is still loading
-      const loading = labelsData.loading || dataSetResults.some((ds) => ds.loading) || headerResults.some((hr) => hr.loading);
-      if (loading) {
-        return { processedData: null, processedLabels: [], processingError: null, isLoading: true };
-      }
-
-      // Check for errors
-      const errors: string[] = [];
-      if (labelsData.error) {
-        errors.push(`Labels (${labelsRange}): ${labelsData.error}`);
-      }
-      dataSetResults.forEach((ds, idx) => {
-        if (ds.error) {
-          errors.push(`Dataset ${idx + 1} (${dataSets[idx].range}): ${ds.error}`);
-        }
-      });
-      headerResults.forEach((hr, idx) => {
-        if (hr.error) {
-          // Find which dataset this header corresponds to
-          const headerIdx = headerRanges.findIndex((h, i) => h !== null && headerRanges.slice(0, i).filter(x => x !== null).length === idx);
-          if (headerIdx !== -1) {
-            errors.push(`Header for dataset ${headerIdx + 1}: ${hr.error}`);
-          }
-        }
-      });
-
-      if (errors.length > 0) {
-        return {
-          processedData: null,
-          processedLabels: [],
-          processingError: errors.join("\n"),
-          isLoading: false
-        };
-      }
-
-      // Check if we have valid data
-      if (!labelsData.cells || labelsData.cells.length === 0) {
-        return {
-          processedData: null,
-          processedLabels: [],
-          processingError: "No label data available",
-          isLoading: false
-        };
-      }
-
-      try {
-        // Extract labels
-        const labels = extractLabels(labelsData.cells);
-
-        // Map header results back to their original dataset indices
-        let headerResultIdx = 0;
-        const datasetLabels = dataSets.map((_ds, idx) => {
-          // If no header range was generated (invalid range), use fallback
-          if (!headerRanges[idx]) {
-            return `Dataset ${idx + 1}`;
-          }
-
-          // Extract label from header cell
-          const headerResult = headerResults[headerResultIdx++];
-          if (headerResult && headerResult.cells && headerResult.cells.length > 0) {
-            const headerLabels = extractLabels(headerResult.cells);
-            return headerLabels[0] || `Dataset ${idx + 1}`;
-          }
-
-          // Fallback if header cell is empty or missing
-          return `Dataset ${idx + 1}`;
-        });
-
-        // Extract numeric values for each dataset
-        const processedDataSets = dataSetResults.map((ds, idx) => {
-          const cells = ds.cells || [];
-          const numericValues = extractNumericValues(cells);
-          return {
-            label: datasetLabels[idx],
-            data: numericValues,
-            color: dataSets[idx].color,
-          };
-        });
-
-        // Transform to Recharts format
-        const chartData = transformToRechartsData(labels, processedDataSets);
-
-        if (chartData.length === 0) {
-          return {
-            processedData: null,
-            processedLabels: [],
-            processingError: "No data available to display",
-            isLoading: false
-          };
-        }
-
-        return {
-          processedData: chartData,
-          processedLabels: datasetLabels,
-          processingError: null,
-          isLoading: false
-        };
-      } catch (error) {
-        return {
-          processedData: null,
-          processedLabels: [],
-          processingError: error instanceof Error ? error.message : "Unknown error processing data",
-          isLoading: false
-        };
-      }
-    }, [
-      labelsData.loading,
-      labelsData.error,
-      labelsData.cells,
-      labelsRange,
-      dataSets,
-      dataSetResults,
-      headerResults,
-      headerRanges,
-    ]);
-
-    // Validate minimum required data
-    const hasMinimumData = tabId && labelsRange && dataSets?.length > 0;
-
-    // Show loading during component streaming if minimum data hasn't arrived yet
-    if (!hasMinimumData && isStreaming) {
-      return (
-        <div className="flex h-full items-center justify-center rounded-lg border border-border bg-background p-6">
-          <div className="text-center">
-            <div className="mb-2 text-sm text-muted-foreground">
-              Configuring chart...
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // If minimum data is still missing after generation completes, show awaiting state
-    if (!hasMinimumData) {
-      return (
-        <div className="flex h-full items-center justify-center rounded-lg border border-border bg-background p-6">
-          <div className="text-center">
-            <div className="mb-2 text-sm text-muted-foreground">
-              Awaiting chart data...
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Show loading state FIRST - before any validation errors
-    // This prevents error flashes during initial data processing
-    if (isLoading) {
+    // If no data received yet, show loading
+    if (!data) {
       return (
         <div
           ref={ref}
@@ -365,47 +218,17 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
       );
     }
 
-    // Check for too many datasets AFTER loading check
-    // useMultipleSpreadsheetData supports up to 10 datasets
-    if (dataSets.length > 10) {
-      return (
-        <div
-          ref={ref}
-          className={cn(graphVariants({ variant, size }), className)}
-          {...props}
-        >
-          <div className="p-4 flex items-center justify-center h-full">
-            <div className="text-destructive text-center">
-              <p className="font-medium">Too many datasets</p>
-              <p className="text-sm mt-1">
-                Maximum 10 datasets supported. You provided {dataSets.length}.
-              </p>
-            </div>
-          </div>
-        </div>
-      );
-    }
+    // Check if we have the minimum viable data structure
+    const hasValidStructure =
+      data.type &&
+      data.labels &&
+      data.datasets &&
+      Array.isArray(data.labels) &&
+      Array.isArray(data.datasets) &&
+      data.labels.length > 0 &&
+      data.datasets.length > 0;
 
-    // Show error state
-    if (processingError) {
-      return (
-        <div
-          ref={ref}
-          className={cn(graphVariants({ variant, size }), className)}
-          {...props}
-        >
-          <div className="p-4 flex items-center justify-center h-full">
-            <div className="text-destructive text-center">
-              <p className="font-medium">Error loading chart</p>
-              <p className="text-sm mt-1 whitespace-pre-line">{processingError}</p>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Show empty state
-    if (!processedData || processedData.length === 0) {
+    if (!hasValidStructure) {
       return (
         <div
           ref={ref}
@@ -414,68 +237,91 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
         >
           <div className="p-4 h-full flex items-center justify-center">
             <div className="text-muted-foreground text-center">
-              <p className="text-sm">No data available</p>
+              <p className="text-sm">Building chart...</p>
             </div>
           </div>
         </div>
       );
     }
 
-    // Check if data is stale (chart references a different tab than the active one)
-    const resolvedTabCandidates = [
-      labelsData.resolvedSheetId,
-      ...dataSetResults.map((ds) => ds.resolvedSheetId),
-      ...headerResults.map((hr) => hr.resolvedSheetId),
-    ].filter((candidate): candidate is string => Boolean(candidate));
-
-    const resolvedTabId = resolvedTabCandidates[0] ?? null;
-
-    const activeSheet = sheets.find((sheet) => sheet.id === activeTabId);
-    const tabMatchesActiveName = Boolean(
-      activeSheet && tabId && activeSheet.name === tabId,
+    // Filter datasets to only include those with valid data
+    const validDatasets = data.datasets.filter(
+      (dataset) =>
+        dataset.label &&
+        dataset.data &&
+        Array.isArray(dataset.data) &&
+        dataset.data.length > 0,
     );
 
-    const isStale = Boolean(
-      activeTabId &&
-        ((resolvedTabId && activeTabId !== resolvedTabId) ||
-          (!resolvedTabId && tabId && !tabMatchesActiveName && activeTabId !== tabId)),
+    if (validDatasets.length === 0) {
+      return (
+        <div
+          ref={ref}
+          className={cn(graphVariants({ variant, size }), className)}
+          {...props}
+        >
+          <div className="p-4 h-full flex items-center justify-center">
+            <div className="text-muted-foreground text-center">
+              <p className="text-sm">Preparing datasets...</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Use the minimum length between labels and the shortest dataset
+    const maxDataPoints = Math.min(
+      data.labels.length,
+      Math.min(...validDatasets.map((d) => d.data.length)),
     );
 
-    // Chart rendering logic
+    // Transform data for Recharts using only available data points
+    const chartData = data.labels
+      .slice(0, maxDataPoints)
+      .map((label, index) => ({
+        name: label,
+        ...Object.fromEntries(
+          validDatasets.map((dataset) => [
+            dataset.label,
+            dataset.data[index] ?? 0,
+          ]),
+        ),
+      }));
+
     const renderChart = () => {
-      if (!["bar", "line", "pie", "stacked-bar", "stacked-area", "combo"].includes(type)) {
+      if (!["bar", "line", "pie"].includes(data.type)) {
         return (
           <div className="h-full flex items-center justify-center">
             <div className="text-muted-foreground text-center">
-              <p className="text-sm">Unsupported chart type: {type}</p>
+              <p className="text-sm">Unsupported chart type: {data.type}</p>
             </div>
           </div>
         );
       }
 
-      switch (type) {
+      switch (data.type) {
         case "bar":
           return (
-            <RechartsCore.BarChart data={processedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+            <RechartsCore.BarChart data={chartData}>
               <RechartsCore.CartesianGrid
                 strokeDasharray="3 3"
                 vertical={false}
-                stroke="hsl(var(--border))"
+                stroke="var(--border)"
               />
               <RechartsCore.XAxis
                 dataKey="name"
-                stroke="hsl(var(--muted-foreground))"
+                stroke="var(--muted-foreground)"
                 axisLine={false}
                 tickLine={false}
               />
               <RechartsCore.YAxis
-                stroke="hsl(var(--muted-foreground))"
+                stroke="var(--muted-foreground)"
                 axisLine={false}
                 tickLine={false}
               />
               <RechartsCore.Tooltip
                 cursor={{
-                  fill: "hsl(var(--muted-foreground))",
+                  fill: "var(--muted-foreground)",
                   fillOpacity: 0.1,
                   radius: 4,
                 }}
@@ -483,23 +329,22 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
                   backgroundColor: "white",
                   border: "1px solid #e5e7eb",
                   borderRadius: "var(--radius)",
-                  color: "hsl(var(--foreground))",
+                  color: "var(--foreground)",
                 }}
               />
               {showLegend && (
                 <RechartsCore.Legend
                   wrapperStyle={{
-                    color: "hsl(var(--foreground))",
+                    color: "var(--foreground)",
                   }}
                 />
               )}
-              {processedLabels.map((label, index) => (
+              {validDatasets.map((dataset, index) => (
                 <RechartsCore.Bar
-                  key={label}
-                  dataKey={label}
+                  key={dataset.label}
+                  dataKey={dataset.label}
                   fill={
-                    dataSets[index].color ??
-                    defaultColors[index % defaultColors.length]
+                    dataset.color ?? defaultColors[index % defaultColors.length]
                   }
                   radius={[4, 4, 0, 0]}
                 />
@@ -507,82 +352,28 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
             </RechartsCore.BarChart>
           );
 
-        case "stacked-bar":
-          return (
-            <RechartsCore.BarChart data={processedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-              <RechartsCore.CartesianGrid
-                strokeDasharray="3 3"
-                vertical={false}
-                stroke="hsl(var(--border))"
-              />
-              <RechartsCore.XAxis
-                dataKey="name"
-                stroke="hsl(var(--muted-foreground))"
-                axisLine={false}
-                tickLine={false}
-              />
-              <RechartsCore.YAxis
-                stroke="hsl(var(--muted-foreground))"
-                axisLine={false}
-                tickLine={false}
-              />
-              <RechartsCore.Tooltip
-                cursor={{
-                  fill: "hsl(var(--muted-foreground))",
-                  fillOpacity: 0.1,
-                  radius: 4,
-                }}
-                contentStyle={{
-                  backgroundColor: "white",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: "var(--radius)",
-                  color: "hsl(var(--foreground))",
-                }}
-              />
-              {showLegend && (
-                <RechartsCore.Legend
-                  wrapperStyle={{
-                    color: "hsl(var(--foreground))",
-                  }}
-                />
-              )}
-              {processedLabels.map((label, index) => (
-                <RechartsCore.Bar
-                  key={label}
-                  dataKey={label}
-                  stackId="stack"
-                  fill={
-                    dataSets[index].color ??
-                    defaultColors[index % defaultColors.length]
-                  }
-                  radius={index === processedLabels.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                />
-              ))}
-            </RechartsCore.BarChart>
-          );
-
         case "line":
           return (
-            <RechartsCore.LineChart data={processedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+            <RechartsCore.LineChart data={chartData}>
               <RechartsCore.CartesianGrid
                 strokeDasharray="3 3"
                 vertical={false}
-                stroke="hsl(var(--border))"
+                stroke="var(--border)"
               />
               <RechartsCore.XAxis
                 dataKey="name"
-                stroke="hsl(var(--muted-foreground))"
+                stroke="var(--muted-foreground)"
                 axisLine={false}
                 tickLine={false}
               />
               <RechartsCore.YAxis
-                stroke="hsl(var(--muted-foreground))"
+                stroke="var(--muted-foreground)"
                 axisLine={false}
                 tickLine={false}
               />
               <RechartsCore.Tooltip
                 cursor={{
-                  stroke: "hsl(var(--muted))",
+                  stroke: "var(--muted)",
                   strokeWidth: 2,
                   strokeOpacity: 0.3,
                 }}
@@ -590,24 +381,23 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
                   backgroundColor: "white",
                   border: "1px solid #e5e7eb",
                   borderRadius: "var(--radius)",
-                  color: "hsl(var(--foreground))",
+                  color: "var(--foreground)",
                 }}
               />
               {showLegend && (
                 <RechartsCore.Legend
                   wrapperStyle={{
-                    color: "hsl(var(--foreground))",
+                    color: "var(--foreground)",
                   }}
                 />
               )}
-              {processedLabels.map((label, index) => (
+              {validDatasets.map((dataset, index) => (
                 <RechartsCore.Line
-                  key={label}
+                  key={dataset.label}
                   type="monotone"
-                  dataKey={label}
+                  dataKey={dataset.label}
                   stroke={
-                    dataSets[index].color ??
-                    defaultColors[index % defaultColors.length]
+                    dataset.color ?? defaultColors[index % defaultColors.length]
                   }
                   dot={false}
                 />
@@ -615,88 +405,29 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
             </RechartsCore.LineChart>
           );
 
-        case "stacked-area":
-          return (
-            <RechartsCore.AreaChart data={processedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-              <RechartsCore.CartesianGrid
-                strokeDasharray="3 3"
-                vertical={false}
-                stroke="hsl(var(--border))"
-              />
-              <RechartsCore.XAxis
-                dataKey="name"
-                stroke="hsl(var(--muted-foreground))"
-                axisLine={false}
-                tickLine={false}
-              />
-              <RechartsCore.YAxis
-                stroke="hsl(var(--muted-foreground))"
-                axisLine={false}
-                tickLine={false}
-              />
-              <RechartsCore.Tooltip
-                cursor={{
-                  stroke: "hsl(var(--muted))",
-                  strokeWidth: 2,
-                  strokeOpacity: 0.3,
-                }}
-                contentStyle={{
-                  backgroundColor: "white",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: "var(--radius)",
-                  color: "hsl(var(--foreground))",
-                }}
-              />
-              {showLegend && (
-                <RechartsCore.Legend
-                  wrapperStyle={{
-                    color: "hsl(var(--foreground))",
-                  }}
-                />
-              )}
-              {processedLabels.map((label, index) => (
-                <RechartsCore.Area
-                  key={label}
-                  type="monotone"
-                  dataKey={label}
-                  stackId="stack"
-                  stroke={
-                    dataSets[index].color ??
-                    defaultColors[index % defaultColors.length]
-                  }
-                  fill={
-                    dataSets[index].color ??
-                    defaultColors[index % defaultColors.length]
-                  }
-                  fillOpacity={0.6}
-                />
-              ))}
-            </RechartsCore.AreaChart>
-          );
-
         case "pie": {
-          // For pie charts, transform processedData into pie format
-          // Use the first dataset's values with the labels
-          if (dataSets.length === 0) {
+          // For pie charts, use the first valid dataset
+          const pieDataset = validDatasets[0];
+          if (!pieDataset) {
             return (
               <div className="h-full flex items-center justify-center">
                 <div className="text-muted-foreground text-center">
-                  <p className="text-sm">No dataset for pie chart</p>
+                  <p className="text-sm">No valid dataset for pie chart</p>
                 </div>
               </div>
             );
           }
 
-          const pieData = processedData.map((item, index) => ({
-            name: item.name as string,
-            value: item[processedLabels[0]] as number,
-            fill: defaultColors[index % defaultColors.length],
-          }));
-
           return (
             <RechartsCore.PieChart>
               <RechartsCore.Pie
-                data={pieData}
+                data={pieDataset.data
+                  .slice(0, maxDataPoints)
+                  .map((value, index) => ({
+                    name: data.labels[index],
+                    value,
+                    fill: defaultColors[index % defaultColors.length],
+                  }))}
                 dataKey="value"
                 nameKey="name"
                 cx="50%"
@@ -710,141 +441,50 @@ export const Graph = React.forwardRef<HTMLDivElement, GraphProps>(
                   backgroundColor: "white",
                   border: "1px solid #e5e7eb",
                   borderRadius: "var(--radius)",
-                  color: "hsl(var(--foreground))",
+                  color: "var(--foreground)",
                   boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                 }}
                 itemStyle={{
-                  color: "hsl(var(--foreground))",
+                  color: "var(--foreground)",
                 }}
                 labelStyle={{
-                  color: "hsl(var(--foreground))",
+                  color: "var(--foreground)",
                 }}
               />
               {showLegend && (
                 <RechartsCore.Legend
                   wrapperStyle={{
-                    color: "hsl(var(--foreground))",
+                    color: "var(--foreground)",
                   }}
                 />
               )}
             </RechartsCore.PieChart>
           );
         }
-
-        case "combo": {
-          // Combo chart with bars and lines on the same chart
-          // Supports multi-axis with left and right Y-axes
-          const hasRightAxis = dataSets.some(ds => ds.yAxisId === "right");
-
-          return (
-            <RechartsCore.ComposedChart data={processedData} margin={{ top: 5, right: hasRightAxis ? 20 : 20, left: 0, bottom: 5 }}>
-              <RechartsCore.CartesianGrid
-                strokeDasharray="3 3"
-                vertical={false}
-                stroke="hsl(var(--border))"
-              />
-              <RechartsCore.XAxis
-                dataKey="name"
-                stroke="hsl(var(--muted-foreground))"
-                axisLine={false}
-                tickLine={false}
-              />
-              <RechartsCore.YAxis
-                yAxisId="left"
-                stroke="hsl(var(--muted-foreground))"
-                axisLine={false}
-                tickLine={false}
-              />
-              {hasRightAxis && (
-                <RechartsCore.YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  stroke="hsl(var(--muted-foreground))"
-                  axisLine={false}
-                  tickLine={false}
-                />
-              )}
-              <RechartsCore.Tooltip
-                cursor={{
-                  fill: "hsl(var(--muted-foreground))",
-                  fillOpacity: 0.1,
-                  radius: 4,
-                }}
-                contentStyle={{
-                  backgroundColor: "white",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: "var(--radius)",
-                  color: "hsl(var(--foreground))",
-                }}
-              />
-              {showLegend && (
-                <RechartsCore.Legend
-                  wrapperStyle={{
-                    color: "hsl(var(--foreground))",
-                  }}
-                />
-              )}
-              {processedLabels.map((label, index) => {
-                const dataset = dataSets[index];
-                const chartType = dataset?.chartType || "bar";
-                const yAxisId = dataset?.yAxisId || "left";
-                const color = dataset?.color ?? defaultColors[index % defaultColors.length];
-
-                if (chartType === "line") {
-                  return (
-                    <RechartsCore.Line
-                      key={label}
-                      type="monotone"
-                      dataKey={label}
-                      stroke={color}
-                      yAxisId={yAxisId}
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                  );
-                } else {
-                  return (
-                    <RechartsCore.Bar
-                      key={label}
-                      dataKey={label}
-                      fill={color}
-                      yAxisId={yAxisId}
-                      radius={[4, 4, 0, 0]}
-                    />
-                  );
-                }
-              })}
-            </RechartsCore.ComposedChart>
-          );
-        }
       }
     };
 
-    // Render JSX based on processed data
     return (
-      <div
-        ref={ref}
-        className={cn(graphVariants({ variant, size }), className)}
-        {...props}
-      >
-        <div className="p-4 h-full">
-          <div className="flex items-center justify-between mb-4">
+      <GraphErrorBoundary className={className} variant={variant} size={size}>
+        <div
+          ref={ref}
+          className={cn(graphVariants({ variant, size }), className)}
+          {...props}
+        >
+          <div className="p-4 h-full">
             {title && (
-              <h3 className="text-lg font-medium text-foreground">{title}</h3>
+              <h3 className="text-lg font-medium mb-4 text-foreground">
+                {title}
+              </h3>
             )}
-            {isStale && (
-              <span className="text-xs bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 px-2 py-1 rounded">
-                Data from inactive tab
-              </span>
-            )}
-          </div>
-          <div className="w-full h-[calc(100%-3rem)]">
-            <RechartsCore.ResponsiveContainer width="100%" height="100%">
-              {renderChart()}
-            </RechartsCore.ResponsiveContainer>
+            <div className="w-full h-[calc(100%-2rem)]">
+              <RechartsCore.ResponsiveContainer width="100%" height="100%">
+                {renderChart()}
+              </RechartsCore.ResponsiveContainer>
+            </div>
           </div>
         </div>
-      </div>
+      </GraphErrorBoundary>
     );
   },
 );
