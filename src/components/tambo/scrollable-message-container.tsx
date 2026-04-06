@@ -1,9 +1,9 @@
 "use client";
 
-import { cn } from "@/lib/utils";
 import { useTambo } from "@tambo-ai/react";
+import { cn } from "@/lib/utils";
 import * as React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 
 /**
  * Props for the ScrollableMessageContainer component
@@ -29,7 +29,7 @@ export const ScrollableMessageContainer = React.forwardRef<
   ScrollableMessageContainerProps
 >(({ className, children, ...props }, ref) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const { thread } = useTambo();
+  const { messages, isStreaming } = useTambo();
   const [shouldAutoscroll, setShouldAutoscroll] = useState(true);
   const lastScrollTopRef = useRef(0);
 
@@ -37,23 +37,18 @@ export const ScrollableMessageContainer = React.forwardRef<
   React.useImperativeHandle(ref, () => scrollContainerRef.current!, []);
 
   // Create a dependency that represents all content that should trigger autoscroll
-  const messagesContent = React.useMemo(() => {
-    if (!thread.messages) return null;
+  const messagesContent = useMemo(() => {
+    if (!messages.length) return null;
 
-    return thread.messages.map((message) => ({
+    return messages.map((message) => ({
       id: message.id,
       content: message.content,
-      tool_calls: message.tool_calls,
-      component: message.component,
       reasoning: message.reasoning,
-      componentState: message.componentState,
     }));
-  }, [thread.messages]);
-
-  const generationStage = thread?.generationStage ?? "IDLE";
+  }, [messages]);
 
   // Handle scroll events to detect user scrolling
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
 
     const { scrollTop, scrollHeight, clientHeight } =
@@ -70,7 +65,7 @@ export const ScrollableMessageContainer = React.forwardRef<
     }
 
     lastScrollTopRef.current = scrollTop;
-  };
+  }, []);
 
   // Auto-scroll to bottom when message content changes
   useEffect(() => {
@@ -84,7 +79,7 @@ export const ScrollableMessageContainer = React.forwardRef<
         }
       };
 
-      if (generationStage === "STREAMING_RESPONSE") {
+      if (isStreaming) {
         // During streaming, scroll immediately
         requestAnimationFrame(scroll);
       } else {
@@ -93,7 +88,7 @@ export const ScrollableMessageContainer = React.forwardRef<
         return () => clearTimeout(timeoutId);
       }
     }
-  }, [messagesContent, generationStage, shouldAutoscroll]);
+  }, [messagesContent, isStreaming, shouldAutoscroll]);
 
   return (
     <div
@@ -102,7 +97,7 @@ export const ScrollableMessageContainer = React.forwardRef<
       className={cn(
         "flex-1 overflow-y-auto",
         "[&::-webkit-scrollbar]:w-[6px]",
-        "[&::-webkit-scrollbar-thumb]:bg-gray-300",
+        "[&::-webkit-scrollbar-thumb]:bg-muted-foreground/30",
         "[&::-webkit-scrollbar:horizontal]:h-[4px]",
         className,
       )}

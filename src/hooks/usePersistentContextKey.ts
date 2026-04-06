@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 const STORAGE_KEY = "tambo-context-key";
 
@@ -11,15 +11,22 @@ function createContextKey(prefix: string) {
   return `${prefix}-${randomUUID}`;
 }
 
+function getServerSnapshot() {
+  return null;
+}
+
+// localStorage is not an observable store, so we use a no-op subscribe.
+// The value only needs to be read once on mount and never changes.
+function subscribe() {
+  return () => {};
+}
+
 /**
  * Ensures each user gets a stable context key generated on their first visit.
+ * Returns null during SSR (via getServerSnapshot) to avoid hydration mismatches.
  */
 export function usePersistentContextKey(prefix = "tambo-template") {
-  const contextKey = useMemo(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-
+  const getSnapshot = useCallback(() => {
     const prefixWithSeparator = `${prefix}-`;
 
     try {
@@ -41,5 +48,5 @@ export function usePersistentContextKey(prefix = "tambo-template") {
     return newKey;
   }, [prefix]);
 
-  return contextKey;
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }

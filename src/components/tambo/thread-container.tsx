@@ -10,7 +10,15 @@ import { useRef } from "react";
 /**
  * Props for the ThreadContainer component
  */
-export type ThreadContainerProps = React.HTMLAttributes<HTMLDivElement>;
+export interface ThreadContainerProps extends React.HTMLAttributes<HTMLDivElement> {
+  /**
+   * Whether to disable automatic sidebar spacing.
+   * When true, the component will not add margins for the sidebar.
+   * Useful when the sidebar is positioned externally (e.g., in a flex container).
+   * @default false
+   */
+  disableSidebarSpacing?: boolean;
+}
 
 /**
  * A responsive container component for message threads that handles
@@ -21,7 +29,7 @@ export type ThreadContainerProps = React.HTMLAttributes<HTMLDivElement>;
 export const ThreadContainer = React.forwardRef<
   HTMLDivElement,
   ThreadContainerProps
->(({ className, children, ...props }, ref) => {
+>(({ className, children, disableSidebarSpacing = false, ...props }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const { hasCanvasSpace, canvasIsOnLeft } = useCanvasDetection(containerRef);
   const { isLeftPanel, historyPosition } = usePositioning(
@@ -36,21 +44,24 @@ export const ThreadContainer = React.forwardRef<
       ref={mergedRef}
       className={cn(
         // Base layout and styling
-        "flex flex-col bg-white overflow-hidden bg-background",
-        "h-screen",
+        "flex flex-col overflow-hidden bg-background",
+        "h-full",
 
         // Add smooth transitions for layout changes
         "transition-all duration-200 ease-in-out",
 
-        // Sidebar spacing based on history position
-        historyPosition === "right"
-          ? "mr-[var(--sidebar-width,16rem)]"
-          : "ml-[var(--sidebar-width,16rem)]",
+        // Sidebar spacing based on history position (unless disabled)
+        !disableSidebarSpacing &&
+          (historyPosition === "right"
+            ? "mr-[var(--sidebar-width,16rem)]"
+            : "ml-[var(--sidebar-width,16rem)]"),
 
-        // Width constraints based on canvas presence
-        hasCanvasSpace
-          ? "max-w-3xl"
-          : "w-[calc(100%-var(--sidebar-width,16rem))]",
+        // Width constraints based on canvas presence (unless sidebar spacing disabled)
+        !disableSidebarSpacing &&
+          (hasCanvasSpace
+            ? "max-w-3xl"
+            : "w-[calc(100%-var(--sidebar-width,16rem))]"),
+        disableSidebarSpacing && "flex-1",
 
         // Border styling when canvas is present
         hasCanvasSpace && (canvasIsOnLeft ? "border-l" : "border-r"),
